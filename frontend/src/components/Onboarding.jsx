@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
-import { Button, TextField, Box, Typography } from '@mui/material';
+import { Button, TextField, Box, Typography, MenuItem } from '@mui/material';
 
 function Onboarding() {
   const { register, handleSubmit, formState: { errors } } = useForm();
@@ -40,6 +40,18 @@ function Onboarding() {
           helperText={errors.phone?.message}
         />
         <TextField
+          select
+          label="Role"
+          fullWidth
+          margin="normal"
+          {...register('role', { required: 'Please select a role' })}
+          error={!!errors.role}
+          helperText={errors.role?.message}
+        >
+          <MenuItem value="owner">Property Owner</MenuItem>
+          <MenuItem value="advertiser">Advertiser</MenuItem>
+        </TextField>
+        <TextField
           label="Location (for Owners)"
           fullWidth
           margin="normal"
@@ -51,7 +63,9 @@ function Onboarding() {
           margin="normal"
           {...register('businessName')}
         />
-        <Button type="submit" variant="contained" fullWidth sx={{ mt: 2 }}>Save</Button>
+        <Button type="submit" variant="contained" fullWidth sx={{ mt: 2, bgcolor: 'var(--primary-color)' }}>
+          Save
+        </Button>
       </form>
     </Box>
   );

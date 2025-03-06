@@ -7,7 +7,7 @@ import { Button, TextField, Box, Typography, Link } from '@mui/material';
 import { motion } from 'framer-motion';
 import styled from '@emotion/styled';
 
-// Styled components
+// Styled Components
 const Background = styled(Box)`
   min-height: 100vh;
   display: flex;
@@ -24,46 +24,40 @@ const Overlay = styled(Box)`
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.4); /* Darker overlay for contrast */
   z-index: 1;
 `;
 
-const ImageLeft = styled(motion.img)`
+const ImageContainer = styled(Box)`
   position: absolute;
-  left: 0;
-  top: 20%;
-  width: 300px;
-  height: auto;
-  opacity: 0.8;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   z-index: 0;
   @media (max-width: 600px) {
     display: none;
   }
 `;
 
-const ImageRight = styled(motion.img)`
-  position: absolute;
-  right: 0;
-  bottom: 20%;
-  width: 300px;
+const Image = styled(motion.img)`
+  width: 40%;
   height: auto;
-  opacity: 0.8;
-  z-index: 0;
-  @media (max-width: 600px) {
-    display: none;
-  }
+  opacity: 0.7;
+  object-fit: cover;
+  border-radius: 8px;
 `;
 
 const LoginContainer = styled(motion.div)`
   background: var(--container-light);
-  padding: 2rem;
-  border-radius: 12px;
+  padding: 2.5rem;
+  border-radius: 16px;
   box-shadow: var(--shadow);
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
   z-index: 2;
   text-align: center;
-
   .dark-mode & {
     background: var(--container-dark);
   }
@@ -90,31 +84,35 @@ function Login() {
 
   return (
     <Background>
+      <ImageContainer>
+        <Image
+          src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800"
+          alt="Property"
+          initial={{ x: -100, opacity: 0 }}
+          animate={{ x: 0, opacity: 0.7 }}
+          transition={{ duration: 1 }}
+          onError={(e) => (e.target.src = 'https://via.placeholder.com/800x600?text=Property+Image')}
+        />
+        <Image
+          src="https://images.unsplash.com/photo-1566594775437-5d3025b7a32f?auto=format&fit=crop&w=800"
+          alt="Billboard"
+          initial={{ x: 100, opacity: 0 }}
+          animate={{ x: 0, opacity: 0.7 }}
+          transition={{ duration: 1, delay: 0.5 }}
+          onError={(e) => (e.target.src = 'https://via.placeholder.com/800x600?text=Billboard+Image')}
+        />
+      </ImageContainer>
       <Overlay />
-      <ImageLeft
-        src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=300"
-        alt="Property"
-        initial={{ x: -100, opacity: 0 }}
-        animate={{ x: 0, opacity: 0.8 }}
-        transition={{ duration: 1 }}
-      />
-      <ImageRight
-        src="https://images.unsplash.com/photo-1566594775437-5d3025b7a32f?auto=format&fit=crop&w=300"
-        alt="Billboard"
-        initial={{ x: 100, opacity: 0 }}
-        animate={{ x: 0, opacity: 0.8 }}
-        transition={{ duration: 1, delay: 0.5 }}
-      />
       <LoginContainer
         initial={{ opacity: 0, y: 50 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8 }}
       >
-        <Typography variant="h4" gutterBottom sx={{ fontWeight: 600, color: 'var(--primary-color)' }}>
-          Welcome to AdSphere
+        <Typography variant="h4" gutterBottom sx={{ fontWeight: 700, color: 'var(--primary-color)' }}>
+          AdSphere
         </Typography>
-        <Typography variant="body2" sx={{ mb: 3 }}>
-          Connect properties with advertisers seamlessly
+        <Typography variant="body2" sx={{ mb: 3, color: 'var(--text-light)' }}>
+          Connecting properties and advertisers effortlessly
         </Typography>
         <form onSubmit={handleSubmit(onSubmit)}>
           <TextField
@@ -130,6 +128,8 @@ function Login() {
                 '&:hover fieldset': { borderColor: 'var(--primary-color)' },
                 '&.Mui-focused fieldset': { borderColor: 'var(--primary-color)' },
               },
+              '& .MuiInputLabel-root': { color: 'var(--text-light)' },
+              '& .MuiInputLabel-root.Mui-focused': { color: 'var(--primary-color)' },
             }}
           />
           <TextField
@@ -146,6 +146,8 @@ function Login() {
                 '&:hover fieldset': { borderColor: 'var(--primary-color)' },
                 '&.Mui-focused fieldset': { borderColor: 'var(--primary-color)' },
               },
+              '& .MuiInputLabel-root': { color: 'var(--text-light)' },
+              '& .MuiInputLabel-root.Mui-focused': { color: 'var(--primary-color)' },
             }}
           />
           <Button
@@ -164,7 +166,7 @@ function Login() {
           >
             Login with Google
           </Button>
-          <Link href="/register" sx={{ display: 'block', mt: 2 }}>
+          <Link href="/register" sx={{ display: 'block', mt: 2, color: 'var(--secondary-color)' }}>
             Don’t have an account? Register
           </Link>
         </form>

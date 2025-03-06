@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
-import { Button, TextField, Box, Typography, MenuItem, Link } from '@mui/material';
+import { Button, TextField, Box, Typography, Link } from '@mui/material';
 
 function Register() {
   const { register, handleSubmit, formState: { errors } } = useForm();
@@ -35,7 +35,7 @@ function Register() {
           label="Email"
           fullWidth
           margin="normal"
-          {...register('email', { required: 'Email is required' })}
+          {...register('email', { required: 'Email is required', pattern: { value: /^\S+@\S+$/i, message: 'Invalid email' } })}
           error={!!errors.email}
           helperText={errors.email?.message}
         />
@@ -44,25 +44,17 @@ function Register() {
           type="password"
           fullWidth
           margin="normal"
-          {...register('password', { required: 'Password is required' })}
+          {...register('password', { required: 'Password is required', minLength: { value: 6, message: 'Minimum 6 characters' } })}
           error={!!errors.password}
           helperText={errors.password?.message}
         />
-        <TextField
-          select
-          label="Role"
-          fullWidth
-          margin="normal"
-          {...register('role', { required: 'Role is required' })}
-          error={!!errors.role}
-          helperText={errors.role?.message}
-        >
-          <MenuItem value="owner">Property Owner</MenuItem>
-          <MenuItem value="advertiser">Advertiser</MenuItem>
-        </TextField>
-        <Button type="submit" variant="contained" fullWidth sx={{ mt: 2 }}>Register</Button>
+        <Button type="submit" variant="contained" fullWidth sx={{ mt: 2, bgcolor: 'var(--primary-color)' }}>
+          Register
+        </Button>
       </form>
-      <Link href="/login" sx={{ display: 'block', mt: 2 }}>Already have an account? Login</Link>
+      <Link href="/login" sx={{ display: 'block', mt: 2, color: 'var(--secondary-color)' }}>
+        Already have an account? Login
+      </Link>
     </Box>
   );
 }
