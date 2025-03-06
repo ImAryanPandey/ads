@@ -1,13 +1,16 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import Login from './components/Login.jsx';
-import Register from './components/Register.jsx';
-import VerifyEmail from './components/VerifyEmail.jsx';
-import Onboarding from './components/Onboarding.jsx';
-import Dashboard from './components/Dashboard.jsx';
-import AddProperty from './components/AddProperty.jsx';
-import BrowseProperties from './components/BrowseProperties.jsx';
-import PropertyDetails from './components/PropertyDetails.jsx';
+import GlobalStyles from './GlobalStyles';
+import ThemeToggle from './ThemeToggle';
+import Login from './components/Login';
+import Register from './components/Register';
+import VerifyEmail from './components/VerifyEmail';
+import Onboarding from './components/Onboarding';
+import Dashboard from './components/Dashboard';
+import AddProperty from './components/AddProperty';
+import BrowseProperties from './components/BrowseProperties';
+import PropertyDetails from './components/PropertyDetails';
+import { Box } from '@mui/material';
 
 const PrivateRoute = ({ children }) => {
   const token = localStorage.getItem('token');
@@ -17,6 +20,10 @@ const PrivateRoute = ({ children }) => {
 function App() {
   return (
     <Router>
+      <GlobalStyles />
+      <Box sx={{ position: 'fixed', top: 16, right: 16, zIndex: 1000 }}>
+        <ThemeToggle />
+      </Box>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
