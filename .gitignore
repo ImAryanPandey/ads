@@ -24,4 +24,4 @@ dist-ssr
 *.sw?
 
 # Ignore environment files
-.env
+**/.env
