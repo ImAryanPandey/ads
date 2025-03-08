@@ -35,6 +35,7 @@ function Register() {
           label="Email"
           fullWidth
           margin="normal"
+          autoComplete="email"
           {...register('email', { required: 'Email is required', pattern: { value: /^\S+@\S+$/i, message: 'Invalid email' } })}
           error={!!errors.email}
           helperText={errors.email?.message}
@@ -44,6 +45,7 @@ function Register() {
           type="password"
           fullWidth
           margin="normal"
+          autoComplete="current-password"
           {...register('password', { required: 'Password is required', minLength: { value: 6, message: 'Minimum 6 characters' } })}
           error={!!errors.password}
           helperText={errors.password?.message}

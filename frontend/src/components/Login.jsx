@@ -94,7 +94,7 @@ function Login() {
           onError={(e) => (e.target.src = 'https://via.placeholder.com/800x600?text=Property+Image')}
         />
         <Image
-          src="https://images.unsplash.com/photo-1566594775437-5d3025b7a32f?auto=format&fit=crop&w=800"
+          src="https://images.unsplash.com/photo-1644322679708-b7fb91e25ce0?auto=format&fit=crop&w=800"
           alt="Billboard"
           initial={{ x: 100, opacity: 0 }}
           animate={{ x: 0, opacity: 0.7 }}
@@ -120,6 +120,7 @@ function Login() {
             fullWidth
             margin="normal"
             variant="outlined"
+            autoComplete="email"
             {...register('email', { required: 'Email is required', pattern: { value: /^\S+@\S+$/i, message: 'Invalid email' } })}
             error={!!errors.email}
             helperText={errors.email?.message}
@@ -138,6 +139,7 @@ function Login() {
             fullWidth
             margin="normal"
             variant="outlined"
+            autoComplete="current-password"
             {...register('password', { required: 'Password is required', minLength: { value: 6, message: 'Minimum 6 characters' } })}
             error={!!errors.password}
             helperText={errors.password?.message}

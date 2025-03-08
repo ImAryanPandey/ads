@@ -5,10 +5,10 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String },
-  role: { type: String, enum: ['owner', 'advertiser'], required: true },
+  role: { type: String, enum: ['owner', 'advertiser', ''], default: '' },
   verified: { type: Boolean, default: false },
   profile: {
-    phone: { type: String, required: true },
+    phone: { type: String, default: '' },
     location: { type: String }, // for owners
     businessName: { type: String }, // for advertisers
   },

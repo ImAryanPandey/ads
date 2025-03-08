@@ -8,6 +8,7 @@ const http = require('http');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const dotenv = require('dotenv');
+const jwt = require('jsonwebtoken');
 const { connectDB } = require('./db');
 const authRoutes = require('./routes/auth');
 const propertyRoutes = require('./routes/properties');
@@ -24,7 +25,7 @@ const io = new Server(server, { cors: { origin: 'http://localhost:5173' } });
 app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
 app.use(helmet());
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 })); // 100 requests per 15 min
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
 app.use(passport.initialize());
 
 // MongoDB Connection
@@ -32,6 +33,7 @@ connectDB();
 
 // Socket.IO
 io.on('connection', (socket) => {
+  console.log('Client connected:', socket.id);
   socket.on('joinRoom', (room) => {
     socket.join(room);
   });
@@ -39,7 +41,7 @@ io.on('connection', (socket) => {
     io.to(room).emit('message', { sender, message, timestamp: new Date() });
   });
   socket.on('disconnect', () => {
-    console.log('Client disconnected');
+    console.log('Client disconnected:', socket.id);
   });
 });
 
@@ -55,12 +57,15 @@ passport.use(new GoogleStrategy({
       user = new User({
         name: profile.displayName,
         email: profile.emails[0].value,
-        password: '',
+        password: '', // No password for Google users
+        verified: true, // Google emails are verified
         role: '',
-        verified: true,
+        profile: { phone: '' },
       });
       await user.save();
     }
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    user.token = token; // Attach token for redirect
     done(null, user);
   } catch (error) {
     done(error, null);
@@ -72,6 +77,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/properties', propertyRoutes);
 app.use('/api/requests', requestRoutes);
 
-server.listen(process.env.PORT, () => {
-  console.log(`Server running on port ${process.env.PORT}`);
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
