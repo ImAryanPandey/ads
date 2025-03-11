@@ -5,6 +5,7 @@ import ThemeToggle from './ThemeToggle';
 import Login from './components/Login';
 import Register from './components/Register';
 import VerifyEmail from './components/VerifyEmail';
+import VerifyOTP from './components/VerifyOTP';
 import Onboarding from './components/Onboarding';
 import Dashboard from './components/Dashboard';
 import AddProperty from './components/AddProperty';
@@ -28,6 +29,7 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/verify-email/:token" element={<VerifyEmail />} />
+        <Route path="/verify-otp" element={<VerifyOTP />} /> 
         <Route path="/onboarding" element={<PrivateRoute><Onboarding /></PrivateRoute>} />
         <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
         <Route path="/add-property" element={<PrivateRoute><AddProperty /></PrivateRoute>} />

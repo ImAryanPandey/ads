@@ -1,108 +1,152 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
-const VerificationToken = require('../models/VerificationToken');
-const { v4: uuidv4 } = require('uuid');
-const nodemailer = require('nodemailer');
+const { redisClient } = require('../db');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer');
 const passport = require('passport');
 const { auth } = require('../middleware/auth');
+const rateLimit = require('express-rate-limit');
 
-router.post('/register', async (req, res) => {
-  const { name, email, password, role } = req.body;
+const OTP_EXPIRATION = 300; // 5 minutes
+const JWT_EXPIRATION = '1h';
+const REFRESH_TOKEN_EXPIRATION = '7d';
+
+// ✅ Rate limiting for OTP requests (per IP & per email)
+const otpRequestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3, // 3 OTP requests per 15 minutes per IP
+  message: 'Too many OTP requests. Try again later.',
+});
+
+const transporter = nodemailer.createTransport({
+  host: process.env.EMAIL_HOST || 'smtp-relay.brevo.com',
+  port: process.env.EMAIL_PORT || 587,
+  secure: process.env.EMAIL_PORT == 465,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+// ✅ Securely store JWT in HTTP-only cookies
+const sendAuthCookies = (res, user) => {
+  const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRATION });
+  const refreshToken = jwt.sign({ id: user._id }, process.env.JWT_REFRESH_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRATION });
+
+  res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'Strict' });
+  res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: true, sameSite: 'Strict' });
+};
+
+// ✅ Generate OTP & Save in Redis
+const generateAndSendOTP = async (email) => {
+  await redisClient.del(`otp:${email}`); // Clear old OTP before generating a new one
+  const otp = Math.floor(100000 + Math.random() * 900000);
+  const hashedOtp = await bcrypt.hash(otp.toString(), 10);
+  await redisClient.setEx(`otp:${email}`, OTP_EXPIRATION, hashedOtp);
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: 'Your OTP for Account Verification',
+    text: `Your OTP code is: ${otp}. It expires in 5 minutes.`,
+  };
+
+  await transporter.sendMail(mailOptions);
+};
+
+// ✅ Registration (Stores OTP, Not User)
+router.post('/register', otpRequestLimiter, async (req, res) => {
+  const { name, email, password } = req.body;
   const passwordRegex = /^(?=.*\d)(?=.*[!@#$%^&*])(?=.*[a-z]).{8,}$/;
+  
   if (!passwordRegex.test(password)) {
-    return res.status(400).json({ message: 'Password must be at least 8 characters, include one number and one special character.' });
+    return res.status(400).json({ message: 'Password must include at least 8 characters, one number, and one special character.' });
   }
+  try {
+    const existingUser = await User.findOne({ email });
+    if (existingUser) return res.status(400).json({ message: 'User already exists. Try logging in or resending OTP.' });
+
+    await generateAndSendOTP(email);
+    res.status(201).json({ message: 'OTP sent to your email. Please verify.' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ✅ Verify OTP & Create User (Only if OTP is correct)
+router.post('/verify-otp', async (req, res) => {
+  const { name, email, password, otp } = req.body;
 
   try {
-    let user = await User.findOne({ email });
-    if (user) return res.status(400).json({ message: 'User already exists' });
+    const storedOtpHash = await redisClient.get(`otp:${email}`);
+    if (!storedOtpHash) return res.status(400).json({ message: 'OTP expired or not found. Request a new one.' });
 
-    user = new User({ name, email, password, role });
+    const isMatch = await bcrypt.compare(otp.toString(), storedOtpHash);
+    if (!isMatch) return res.status(400).json({ message: 'Invalid OTP' });
+
+    await redisClient.del(`otp:${email}`);
+    const user = new User({ name, email, password, verified: true, profileCompleted: false });
     await user.save();
 
-    const token = uuidv4();
-    const verificationToken = new VerificationToken({ userId: user._id, token });
-    await verificationToken.save();
-
-    const transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST || 'smtp-relay.brevo.com',
-      port: process.env.EMAIL_PORT || 587,
-      secure: process.env.EMAIL_PORT == 465, // true if using port 465 (SSL)
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });    
-
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: user.email,
-      subject: 'Verify your email',
-      text: `Please verify your email: http://localhost:5173/verify-email/${token}`,
-    };
-
-    transporter.sendMail(mailOptions, (error) => {
-      if (error) return res.status(500).json({ message: 'Error sending email' });
-      res.status(201).json({ message: 'User registered. Check your email to verify.' });
-    });
+    sendAuthCookies(res, user);
+    res.status(200).json({ message: 'Email verified. Registration complete.', user });
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-router.get('/verify-email/:token', async (req, res) => {
-  const { token } = req.params;
+// ✅ Resend OTP (Checks for existing user first)
+router.post('/resend-otp', async (req, res) => {
+  const { email } = req.body;
+
   try {
-    const verificationToken = await VerificationToken.findOne({ token });
-    if (!verificationToken) return res.status(400).json({ message: 'Invalid or expired token' });
+    const existingUser = await User.findOne({ email });
+    if (!existingUser) return res.status(400).json({ message: 'User not found' });
 
-    const user = await User.findById(verificationToken.userId);
-    if (!user) return res.status(400).json({ message: 'User not found' });
-
-    user.verified = true;
-    await user.save();
-    await VerificationToken.deleteOne({ _id: verificationToken._id });
-
-    res.status(200).json({ message: 'Email verified successfully' });
+    await generateAndSendOTP(email);
+    res.status(200).json({ message: 'OTP resent to your email.' });
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
-  try {
-    const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ message: 'Invalid credentials' });
-    if (!user.verified) return res.status(400).json({ message: 'Please verify your email' });
-
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
-
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    res.status(200).json({ token, user: { id: user._id, name: user.name, role: user.role } });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
+// ✅ Google Authentication (Stores token in cookie & redirects to onboarding if new user)
 router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
-
-router.get('/google/callback', passport.authenticate('google', { session: false }), (req, res) => {
-  const token = jwt.sign({ id: req.user._id, role: req.user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
-  res.redirect(`http://localhost:5173/onboarding?token=${token}`);
+router.get('/google/callback', passport.authenticate('google', { session: false }), async (req, res) => {
+  let user = await User.findOne({ email: req.user.email });
+  if (!user) {
+    user = new User({ name: req.user.name, email: req.user.email, verified: true, profileCompleted: false });
+    await user.save();
+  }
+  sendAuthCookies(res, user);
+  res.redirect(user.profileCompleted ? '/dashboard' : '/onboarding');
 });
 
+// ✅ Onboarding Route: Now only requires 'role' to complete profile
 router.post('/onboarding', auth, async (req, res) => {
-  const { phone, location, businessName } = req.body;
+  const { phone, location, businessName, role } = req.body;
+
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    user.profile = { phone, location, businessName };
-    user.profileCompleted = true;
+    // Ensure role is provided
+    if (!role) return res.status(400).json({ message: 'Role selection is required' });
+
+    // Set profile details based on role
+    user.role = role;
+    user.profile.phone = phone || user.profile.phone; // Optional phone update
+    user.profileCompleted = true; // ✅ Mark profile as complete after role selection
+
+    // Role-specific fields (Only update if provided)
+    if (role === 'owner') {
+      user.profile.location = location || user.profile.location; // Optional for Owners
+    } else if (role === 'advertiser') {
+      user.profile.businessName = businessName || user.profile.businessName; // Optional for Advertisers
+    }
+
     await user.save();
 
     res.status(200).json({ message: 'Profile completed', user });
@@ -110,5 +154,6 @@ router.post('/onboarding', auth, async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
 
 module.exports = router;

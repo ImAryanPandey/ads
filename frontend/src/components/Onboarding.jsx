@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
@@ -6,9 +6,11 @@ import { toast } from 'react-toastify';
 import { Button, TextField, Box, Typography, MenuItem } from '@mui/material';
 
 function Onboarding() {
-  const { register, handleSubmit, formState: { errors } } = useForm();
+  const { register, handleSubmit, formState: { errors }, watch } = useForm();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  
+  const role = watch("role"); // Dynamically track role selection
 
   useEffect(() => {
     const token = searchParams.get('token');
@@ -31,6 +33,7 @@ function Onboarding() {
     <Box sx={{ maxWidth: 400, mx: 'auto', mt: 5 }}>
       <Typography variant="h4" gutterBottom>Complete Your Profile</Typography>
       <form onSubmit={handleSubmit(onSubmit)}>
+        
         <TextField
           label="Phone"
           fullWidth
@@ -39,6 +42,7 @@ function Onboarding() {
           error={!!errors.phone}
           helperText={errors.phone?.message}
         />
+        
         <TextField
           select
           label="Role"
@@ -51,18 +55,31 @@ function Onboarding() {
           <MenuItem value="owner">Property Owner</MenuItem>
           <MenuItem value="advertiser">Advertiser</MenuItem>
         </TextField>
-        <TextField
-          label="Location (for Owners)"
-          fullWidth
-          margin="normal"
-          {...register('location')}
-        />
-        <TextField
-          label="Business Name (for Advertisers)"
-          fullWidth
-          margin="normal"
-          {...register('businessName')}
-        />
+
+        {/* Show Location field only if the role is "owner" */}
+        {role === "owner" && (
+          <TextField
+            label="Location"
+            fullWidth
+            margin="normal"
+            {...register('location', { required: 'Location is required for Owners' })}
+            error={!!errors.location}
+            helperText={errors.location?.message}
+          />
+        )}
+
+        {/* Show Business Name field only if the role is "advertiser" */}
+        {role === "advertiser" && (
+          <TextField
+            label="Business Name"
+            fullWidth
+            margin="normal"
+            {...register('businessName', { required: 'Business Name is required for Advertisers' })}
+            error={!!errors.businessName}
+            helperText={errors.businessName?.message}
+          />
+        )}
+
         <Button type="submit" variant="contained" fullWidth sx={{ mt: 2, bgcolor: 'var(--primary-color)' }}>
           Save
         </Button>
