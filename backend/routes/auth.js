@@ -21,14 +21,17 @@ const otpRequestLimiter = rateLimit({
 });
 
 const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'smtp-relay.brevo.com',
-  port: process.env.EMAIL_PORT || 587,
+  host: process.env.EMAIL_HOST,
+  port: process.env.EMAIL_PORT,
   secure: process.env.EMAIL_PORT == 465,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
+  logger: true,  // Enable detailed logging
+  debug: true,   // Enable debug output
 });
+
 
 // ✅ Securely store JWT in HTTP-only cookies
 const sendAuthCookies = (res, user) => {
@@ -47,7 +50,7 @@ const generateAndSendOTP = async (email) => {
   await redisClient.setEx(`otp:${email}`, OTP_EXPIRATION, hashedOtp);
 
   const mailOptions = {
-    from: process.env.EMAIL_USER,
+    from: process.env.FROM_EMAIL,
     to: email,
     subject: 'Your OTP for Account Verification',
     text: `Your OTP code is: ${otp}. It expires in 5 minutes.`,
@@ -102,8 +105,8 @@ router.post('/resend-otp', async (req, res) => {
   const { email } = req.body;
 
   try {
-    const existingUser = await User.findOne({ email });
-    if (!existingUser) return res.status(400).json({ message: 'User not found' });
+    // const existingUser = await User.findOne({ email });
+    // if (!existingUser) return res.status(400).json({ message: 'User not found' });
 
     await generateAndSendOTP(email);
     res.status(200).json({ message: 'OTP resent to your email.' });

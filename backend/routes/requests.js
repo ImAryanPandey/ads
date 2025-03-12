@@ -29,8 +29,8 @@ router.post('/send', auth, role('advertiser'), async (req, res) => {
 
     const owner = await User.findById(adSpace.owner);
     const transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST || 'smtp-relay.brevo.com',
-      port: process.env.EMAIL_PORT || 587,
+      host: process.env.EMAIL_HOST,
+      port: process.env.EMAIL_PORT,
       secure: process.env.EMAIL_PORT == 465, // true if using port 465 (SSL)
       auth: {
         user: process.env.EMAIL_USER,
@@ -85,8 +85,8 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
 
     const sender = await User.findById(request.sender);
     const transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST || 'smtp-relay.brevo.com',
-      port: process.env.EMAIL_PORT || 587,
+      host: process.env.EMAIL_HOST,
+      port: process.env.EMAIL_PORT,
       secure: process.env.EMAIL_PORT == 465, // true if using port 465 (SSL)
       auth: {
         user: process.env.EMAIL_USER,
