@@ -19,9 +19,9 @@ function VerifyOTP() {
   
   const handleVerify = async () => {
     try {
-      await axios.post(`${import.meta.env.VITE_API_URL}/auth/verify-otp`, { email, otp });
+      await axios.post(`${import.meta.env.VITE_API_URL}/auth/verify-otp`, { email, otp: otp.toString() });
       toast.success('Email verified successfully! You can now log in.');
-      navigate('/login');
+      navigate('/onboarding');
     } catch (error) {
       toast.error(error.response?.data.message || 'OTP verification failed');
     }

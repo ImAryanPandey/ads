@@ -40,14 +40,21 @@ function Register() {
 
   const onSubmit = async (data) => {
     if (strength < 100) return toast.error('Password must meet all security criteria');
+  
     try {
-      await axios.post(`${import.meta.env.VITE_API_URL}/auth/register`, data);
+      await axios.post(`${import.meta.env.VITE_API_URL}/auth/register`, {
+        name: data.name,
+        email: data.email,
+        password: data.password
+      });
+  
       toast.success('OTP sent! Please verify your email.');
       navigate(`/verify-otp?email=${encodeURIComponent(data.email)}`);
     } catch (error) {
       toast.error(error.response?.data.message || 'Registration failed');
     }
   };
+  
 
   return (
     <Box sx={{ maxWidth: 400, mx: 'auto', mt: 5 }}>

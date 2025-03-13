@@ -71,6 +71,20 @@ router.post('/register', otpRequestLimiter, async (req, res) => {
     const existingUser = await User.findOne({ email });
     if (existingUser) return res.status(400).json({ message: 'User already exists. Try logging in or resending OTP.' });
 
+    const existingTempData = await redisClient.get(`reg:${email}`);
+    if (existingTempData) {
+      return res.status(400).json({ message: 'OTP already sent. Please verify your email.' });
+    }
+
+    // Store user details temporarily in Redis
+    const tempData = {
+      name,
+      email,
+      passwordHash: await bcrypt.hash(password, 10) // Hash password before storing
+    };
+
+    await redisClient.setEx(`reg:${email}`, 300, JSON.stringify(tempData)); // Expiry: 5 mins
+
     await generateAndSendOTP(email);
     res.status(201).json({ message: 'OTP sent to your email. Please verify.' });
   } catch (error) {
@@ -80,18 +94,42 @@ router.post('/register', otpRequestLimiter, async (req, res) => {
 
 // ✅ Verify OTP & Create User (Only if OTP is correct)
 router.post('/verify-otp', async (req, res) => {
-  const { name, email, password, otp } = req.body;
+  const { email, otp } = req.body; // Only expect email & otp from frontend
 
   try {
-    const storedOtpHash = await redisClient.get(`otp:${email}`);
-    if (!storedOtpHash) return res.status(400).json({ message: 'OTP expired or not found. Request a new one.' });
+    // Retrieve OTP & temp user data from Redis
+    const [storedOtpHash, tempData] = await Promise.all([
+      redisClient.get(`otp:${email}`),
+      redisClient.get(`reg:${email}`)
+    ]);
 
+    if (!storedOtpHash || !tempData) {
+      return res.status(400).json({ message: 'OTP expired or registration session not found. Please restart registration.' });
+    }
+
+    // Verify OTP
     const isMatch = await bcrypt.compare(otp.toString(), storedOtpHash);
     if (!isMatch) return res.status(400).json({ message: 'Invalid OTP' });
 
-    await redisClient.del(`otp:${email}`);
-    const user = new User({ name, email, password, verified: true, profileCompleted: false });
+    // Extract user details from Redis (name, email, password)
+    const { name, email: storedEmail, passwordHash } = JSON.parse(tempData);
+
+    // Create user only after successful OTP verification
+    const user = new User({
+      name,
+      email: storedEmail,
+      password: passwordHash, // Already hashed
+      verified: true,
+      profileCompleted: false
+    });
+
     await user.save();
+
+    // Cleanup Redis data
+    await Promise.all([
+      redisClient.del(`otp:${email}`),
+      redisClient.del(`reg:${email}`)
+    ]);
 
     sendAuthCookies(res, user);
     res.status(200).json({ message: 'Email verified. Registration complete.', user });
@@ -99,6 +137,7 @@ router.post('/verify-otp', async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
 
 // ✅ Resend OTP (Checks for existing user first)
 router.post('/resend-otp', async (req, res) => {
