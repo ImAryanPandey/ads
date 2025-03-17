@@ -28,18 +28,31 @@ const transporter = nodemailer.createTransport({
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-  logger: true,  // Enable detailed logging
-  debug: true,   // Enable debug output
+  // logger: true,  // Enable detailed logging
+  // debug: true,   // Enable debug output
 });
 
 
 // ✅ Securely store JWT in HTTP-only cookies
 const sendAuthCookies = (res, user) => {
+  // Generate JWT tokens (assuming these constants are defined elsewhere)
   const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRATION });
   const refreshToken = jwt.sign({ id: user._id }, process.env.JWT_REFRESH_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRATION });
 
-  res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'Strict' });
-  res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: true, sameSite: 'Strict' });
+  // Check if the environment is production
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  // Define cookie options based on environment
+  const cookieOptions = {
+    httpOnly: true, // Prevents client-side JavaScript access
+    secure: isProduction, // True in production (HTTPS), false in development (HTTP)
+    sameSite: isProduction ? 'Strict' : 'Lax', // Stricter in production, more relaxed in development
+    domain: isProduction ? undefined : 'localhost', // No domain in production, localhost in development
+  };
+
+  // Set the cookies in the response
+  res.cookie('token', token, cookieOptions);
+  res.cookie('refreshToken', refreshToken, cookieOptions);
 };
 
 // ✅ Generate OTP & Save in Redis

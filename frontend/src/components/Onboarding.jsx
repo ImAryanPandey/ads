@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
@@ -12,19 +12,21 @@ function Onboarding() {
   
   const role = watch("role"); // Dynamically track role selection
 
-  useEffect(() => {
-    const token = searchParams.get('token');
-    if (token) localStorage.setItem('token', token);
-  }, [searchParams]);
-
   const onSubmit = async (data) => {
     try {
-      await axios.post(`${import.meta.env.VITE_API_URL}/auth/onboarding`, data, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      const apiUrl = `${import.meta.env.VITE_API_URL}/auth/onboarding`;
+      console.log('API URL:', apiUrl);
+      console.log('Request Data:', data);
+      console.log('Axios Config:', { withCredentials: true });
+  
+      const response = await axios.post(apiUrl, data, {
+        withCredentials: true,
       });
+      console.log('Response:', response.data);
       toast.success('Profile completed!');
       navigate('/dashboard');
     } catch (error) {
+      console.error('Error:', error.response?.data || error.message);
       toast.error(error.response?.data.message || 'Onboarding failed');
     }
   };

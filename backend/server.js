@@ -9,6 +9,7 @@ const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 const { connectDB } = require('./db');
 const authRoutes = require('./routes/auth');
 const propertyRoutes = require('./routes/properties');
@@ -22,7 +23,8 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: 'http://localhost:5173' } });
 
 // Middleware
-app.use(cors({ origin: 'http://localhost:5173' }));
+app.use(cookieParser());
+app.use(cors({ origin: 'http://localhost:5173', credentials: true }));
 app.use(express.json());
 app.use(helmet());
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
