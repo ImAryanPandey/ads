@@ -69,8 +69,11 @@ function Login() {
 
   const onSubmit = async (data) => {
     try {
-      const response = await axios.post(`${import.meta.env.VITE_API_URL}/auth/login`, data);
-      localStorage.setItem('token', response.data.token);
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/auth/login`,
+        data,
+        { withCredentials: true }
+      );
       navigate(response.data.user.profileCompleted ? '/dashboard' : '/onboarding');
       toast.success('Logged in successfully!');
     } catch (error) {

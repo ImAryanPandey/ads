@@ -35,22 +35,16 @@ const transporter = nodemailer.createTransport({
 
 // ✅ Securely store JWT in HTTP-only cookies
 const sendAuthCookies = (res, user) => {
-  // Generate JWT tokens (assuming these constants are defined elsewhere)
   const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRATION });
   const refreshToken = jwt.sign({ id: user._id }, process.env.JWT_REFRESH_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRATION });
 
-  // Check if the environment is production
   const isProduction = process.env.NODE_ENV === 'production';
-
-  // Define cookie options based on environment
   const cookieOptions = {
-    httpOnly: true, // Prevents client-side JavaScript access
-    secure: isProduction, // True in production (HTTPS), false in development (HTTP)
-    sameSite: isProduction ? 'Strict' : 'Lax', // Stricter in production, more relaxed in development
-    domain: isProduction ? undefined : 'localhost', // No domain in production, localhost in development
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'Strict' : 'Lax',
   };
 
-  // Set the cookies in the response
   res.cookie('token', token, cookieOptions);
   res.cookie('refreshToken', refreshToken, cookieOptions);
 };
@@ -177,6 +171,24 @@ router.get('/google/callback', passport.authenticate('google', { session: false 
   }
   sendAuthCookies(res, user);
   res.redirect(user.profileCompleted ? '/dashboard' : '/onboarding');
+});
+
+// manual Login Route
+router.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user || !await user.comparePassword(password)) {
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
+    if (!user.verified) {
+      return res.status(400).json({ message: 'Please verify your email' });
+    }
+    sendAuthCookies(res, user);
+    res.json({ user }); // Remove token from response
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 // ✅ Onboarding Route: Now only requires 'role' to complete profile

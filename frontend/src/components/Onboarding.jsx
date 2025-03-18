@@ -15,19 +15,16 @@ function Onboarding() {
   const onSubmit = async (data) => {
     try {
       const apiUrl = `${import.meta.env.VITE_API_URL}/auth/onboarding`;
-      console.log('API URL:', apiUrl);
-      console.log('Request Data:', data);
-      console.log('Axios Config:', { withCredentials: true });
-  
-      const response = await axios.post(apiUrl, data, {
-        withCredentials: true,
-      });
-      console.log('Response:', response.data);
+      const response = await axios.post(apiUrl, data, { withCredentials: true });
       toast.success('Profile completed!');
       navigate('/dashboard');
     } catch (error) {
-      console.error('Error:', error.response?.data || error.message);
-      toast.error(error.response?.data.message || 'Onboarding failed');
+      if (error.response?.status === 401) {
+        toast.error('Please log in to continue.');
+        navigate('/login');
+      } else {
+        toast.error(error.response?.data.message || 'Onboarding failed');
+      }
     }
   };
 

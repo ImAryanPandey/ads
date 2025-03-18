@@ -14,8 +14,7 @@ import PropertyDetails from './components/PropertyDetails';
 import { Box } from '@mui/material';
 
 const PrivateRoute = ({ children }) => {
-  const token = localStorage.getItem('token');
-  return token ? children : <Navigate to="/login" />;
+  return children; // Trust server-side auth
 };
 
 function App() {

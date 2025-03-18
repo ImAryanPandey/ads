@@ -6,6 +6,7 @@ const auth = (req, res, next) => {
     token = req.cookies.token; // Check for token in cookies
   }
   console.log('Cookies received:', req.cookies);
+  console.log('Token found:', token);
   if (!token) return res.status(401).json({ message: 'No token, authorization denied' });
 
   try {
