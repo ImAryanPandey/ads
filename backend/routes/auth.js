@@ -9,6 +9,8 @@ const passport = require('passport');
 const { auth } = require('../middleware/auth');
 const rateLimit = require('express-rate-limit');
 
+require('dotenv').config();
+const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 const OTP_EXPIRATION = 300; // 5 minutes
 const JWT_EXPIRATION = '1h';
 const REFRESH_TOKEN_EXPIRATION = '7d';
@@ -170,7 +172,7 @@ router.get('/google/callback', passport.authenticate('google', { session: false 
     await user.save();
   }
   sendAuthCookies(res, user);
-  res.redirect(user.profileCompleted ? '/dashboard' : '/onboarding');
+  res.redirect(`${frontendUrl}${user.profileCompleted ? '/dashboard' : '/onboarding'}`);
 });
 
 // manual Login Route
@@ -178,15 +180,24 @@ router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   try {
     const user = await User.findOne({ email });
-    if (!user || !await user.comparePassword(password)) {
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
+    // Check if the user has a password (Google users won’t)
+    if (!user.password) {
+      return res.status(400).json({ message: 'This account was created with Google. Please log in using Google.' });
+    }
+    // Compare password for manual users
+    if (!await user.comparePassword(password)) {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
     if (!user.verified) {
       return res.status(400).json({ message: 'Please verify your email' });
     }
     sendAuthCookies(res, user);
-    res.json({ user }); // Remove token from response
+    res.json({ user });
   } catch (error) {
+    console.error(error); // Log the error for debugging
     res.status(500).json({ message: 'Server error' });
   }
 });
