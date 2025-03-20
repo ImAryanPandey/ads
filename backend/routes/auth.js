@@ -178,26 +178,30 @@ router.get('/google/callback', passport.authenticate('google', { session: false 
 // manual Login Route
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
+  console.log(`Login attempt - Email: ${email}, Password: ${password}`);
   try {
     const user = await User.findOne({ email });
     if (!user) {
+      console.log(`No user found for email: ${email}`);
       return res.status(400).json({ message: 'No account found with this email.' });
     }
-    // Check if the user has a password (Google users won’t)
     if (!user.password) {
+      console.log(`User ${email} has no password (Google user)`);
       return res.status(400).json({ message: 'This account was created with Google. Please log in using Google.' });
     }
-    // Compare password for manual users
-    if (!await user.comparePassword(password)) {
+    const isMatch = await user.comparePassword(password);
+    console.log(`Password match for ${email}: ${isMatch}`);
+    if (!isMatch) {
       return res.status(400).json({ message: 'Incorrect password. Please try again.' });
     }
     if (!user.verified) {
-      return res.status(400).json({ message: 'Please verify your email' });
+      console.log(`User ${email} not verified`);
+      return res.status(400).json({ message: 'Please verify your email before logging in.' });
     }
     sendAuthCookies(res, user);
     res.json({ user });
   } catch (error) {
-    console.error(error); // Log the error for debugging
+    console.error(`Error during login for ${email}:`, error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -210,28 +214,38 @@ router.post('/onboarding', auth, async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // Ensure role is provided
     if (!role) return res.status(400).json({ message: 'Role selection is required' });
 
-    // Set profile details based on role
-    user.role = role;
-    user.profile.phone = phone || user.profile.phone; // Optional phone update
-    user.profileCompleted = true; // ✅ Mark profile as complete after role selection
+    // Phone number validation: ensure exactly 10 digits
+    let formattedPhone = phone ? phone.replace(/\D/g, '') : ''; // Remove all non-digits
+    if (formattedPhone.length === 11 && formattedPhone.startsWith('0')) {
+      formattedPhone = formattedPhone.slice(1); // Remove leading zero
+    }
+    if (formattedPhone.length !== 10) {
+      return res.status(400).json({ message: 'Phone number must be exactly 10 digits.' });
+    }
 
-    // Role-specific fields (Only update if provided)
+    user.role = role;
+    user.profile.phone = formattedPhone;
+    user.profileCompleted = true;
+
     if (role === 'owner') {
-      user.profile.location = location || user.profile.location; // Optional for Owners
+      user.profile.location = location || user.profile.location;
     } else if (role === 'advertiser') {
-      user.profile.businessName = businessName || user.profile.businessName; // Optional for Advertisers
+      user.profile.businessName = businessName || user.profile.businessName;
     }
 
     await user.save();
-
     res.status(200).json({ message: 'Profile completed', user });
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
 });
 
+router.post('/logout', (req, res) => {
+  res.clearCookie('token');
+  res.clearCookie('refreshToken');
+  res.status(200).json({ message: 'Logged out successfully' });
+});
 
 module.exports = router;
