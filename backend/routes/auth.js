@@ -181,7 +181,7 @@ router.post('/login', async (req, res) => {
   try {
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+      return res.status(400).json({ message: 'No account found with this email.' });
     }
     // Check if the user has a password (Google users won’t)
     if (!user.password) {
@@ -189,7 +189,7 @@ router.post('/login', async (req, res) => {
     }
     // Compare password for manual users
     if (!await user.comparePassword(password)) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+      return res.status(400).json({ message: 'Incorrect password. Please try again.' });
     }
     if (!user.verified) {
       return res.status(400).json({ message: 'Please verify your email' });
