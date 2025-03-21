@@ -6,6 +6,8 @@ import { Button, Box, Typography, Grid, Card, CardContent } from '@mui/material'
 import AnalyticsDashboard from './AnalyticsDashboard.jsx';
 import ChatComponent from './ChatComponent.jsx';
 
+axios.defaults.withCredentials = true;
+
 function Dashboard() {
   const [role, setRole] = useState('');
   const [adSpaces, setAdSpaces] = useState([]);
@@ -15,22 +17,19 @@ function Dashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const decoded = JSON.parse(atob(token.split('.')[1]));
-        setRole(decoded.role);
+        const userResponse = await axios.get(`${import.meta.env.VITE_API_URL}/auth/me`);
+        const userRole = userResponse.data.role;
+        setRole(userRole);
 
-        if (decoded.role === 'owner') {
-          const adResponse = await axios.get(`${import.meta.env.VITE_API_URL}/properties/my`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
+        if (userRole === 'owner') {
+          const adResponse = await axios.get(`${import.meta.env.VITE_API_URL}/properties/my`);
           setAdSpaces(adResponse.data);
 
-          const reqResponse = await axios.get(`${import.meta.env.VITE_API_URL}/requests/my`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
+          const reqResponse = await axios.get(`${import.meta.env.VITE_API_URL}/requests/my`);
           setRequests(reqResponse.data);
         }
       } catch (error) {
+        console.error('Error loading dashboard:', error.response?.data || error.message);
         toast.error('Failed to load dashboard');
       }
     };
@@ -39,9 +38,7 @@ function Dashboard() {
 
   const handleRequestUpdate = async (id, status) => {
     try {
-      await axios.post(`${import.meta.env.VITE_API_URL}/requests/update/${id}`, { status }, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      });
+      await axios.post(`${import.meta.env.VITE_API_URL}/requests/update/${id}`, { status });
       setRequests(requests.map(req => req._id === id ? { ...req, status } : req));
       toast.success(`Request ${status}`);
     } catch (error) {
@@ -58,39 +55,47 @@ function Dashboard() {
             Add New AdSpace
           </Button>
           <Typography variant="h6">My AdSpaces</Typography>
-          <Grid container spacing={2}>
-            {adSpaces.map(ad => (
-              <Grid item xs={12} sm={6} md={4} key={ad._id}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6">{ad.title}</Typography>
-                    <Typography>Status: {ad.status}</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
+          {adSpaces.length > 0 ? (
+            <Grid container spacing={2}>
+              {adSpaces.map(ad => (
+                <Grid item xs={12} sm={6} md={4} key={ad._id}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6">{ad.title}</Typography>
+                      <Typography>Status: {ad.status}</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          ) : (
+            <Typography>No AdSpaces added yet. Click "Add New AdSpace" to start.</Typography>
+          )}
           <Typography variant="h6" sx={{ mt: 3 }}>Requests</Typography>
-          <Grid container spacing={2}>
-            {requests.map(req => (
-              <Grid item xs={12} key={req._id}>
-                <Card>
-                  <CardContent>
-                    <Typography>Sender: {req.sender.name}</Typography>
-                    <Typography>AdSpace: {req.adSpace.title}</Typography>
-                    <Typography>Status: {req.status}</Typography>
-                    {req.status === 'Pending' && (
-                      <>
-                        <Button onClick={() => handleRequestUpdate(req._id, 'Approved')}>Approve</Button>
-                        <Button onClick={() => handleRequestUpdate(req._id, 'Rejected')}>Reject</Button>
-                      </>
-                    )}
-                    <ChatComponent requestId={req._id} />
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
+          {requests.length > 0 ? (
+            <Grid container spacing={2}>
+              {requests.map(req => (
+                <Grid item xs={12} key={req._id}>
+                  <Card>
+                    <CardContent>
+                      <Typography>Sender: {req.sender.name}</Typography>
+                      <Typography>AdSpace: {req.adSpace.title}</Typography>
+                      <Typography>Status: {req.status}</Typography>
+                      {req.status === 'Pending' && (
+                        <>
+                          <Button onClick={() => handleRequestUpdate(req._id, 'Approved')}>Approve</Button>
+                          <Button onClick={() => handleRequestUpdate(req._id, 'Rejected')}>Reject</Button>
+                        </>
+                      )}
+                      <ChatComponent requestId={req._id} />
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          ) : (
+            <Typography>No requests yet.</Typography>
+          )}
           <AnalyticsDashboard />
         </>
       ) : (
