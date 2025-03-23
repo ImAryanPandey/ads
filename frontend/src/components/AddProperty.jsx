@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useForm, useWatch } from 'react-hook-form';
+import { useForm, useWatch, Controller } from 'react-hook-form'; // Add Controller
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
@@ -64,9 +64,8 @@ function AddProperty() {
   const navigate = useNavigate();
   const footfallType = useWatch({ control, name: 'footfallType' });
   const [imagePreviews, setImagePreviews] = useState([]);
-  const [footfallRaw, setFootfallRaw] = useState('');
-  const [monthlyRateRaw, setMonthlyRateRaw] = useState('');
-  const [isDragging, setIsDragging] = useState(false); // State to track drag status
+  const [imageKeys, setImageKeys] = useState([]);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Cleanup image previews on unmount
   useEffect(() => {
@@ -89,18 +88,24 @@ function AddProperty() {
       formData.append('images', image);
       formData.append('captions', data.captions[index] || '');
     });
-    if (data.availabilityStart) formData.append('availabilityStart', data.availabilityStart.toISOString());
+    formData.append('availabilityStart', data.availabilityStart.toISOString());
     if (data.availabilityEnd) formData.append('availabilityEnd', data.availabilityEnd.toISOString());
 
+    console.log('FormData entries:');
+    for (let pair of formData.entries()) {
+      console.log(`${pair[0]}: ${pair[1]}`);
+    }
+
     try {
-      await axios.post(`${import.meta.env.VITE_API_URL}/properties/add`, formData, {
+      const response = await axios.post(`${import.meta.env.VITE_API_URL}/properties/add`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         withCredentials: true,
       });
       toast.success('AdSpace added successfully!');
       navigate('/dashboard');
     } catch (error) {
-      toast.error('Failed to add AdSpace');
+      console.error('Error adding AdSpace:', error.response?.data || error.message);
+      toast.error(error.response?.data?.message || 'Failed to add AdSpace');
     }
   };
 
@@ -112,7 +117,9 @@ function AddProperty() {
       toast.error('Only image files are allowed');
     }
     const newPreviews = imageFiles.map((file) => URL.createObjectURL(file));
+    const newKeys = imageFiles.map((file) => `${file.name}-${Date.now()}`);
     setImagePreviews((prev) => [...prev, ...newPreviews]);
+    setImageKeys((prev) => [...prev, ...newKeys]);
     setValue('images', [...watch('images'), ...imageFiles]);
   };
 
@@ -150,34 +157,14 @@ function AddProperty() {
   const removeImage = (index) => {
     const updatedPreviews = imagePreviews.filter((_, i) => i !== index);
     const updatedImages = watch('images').filter((_, i) => i !== index);
+    const updatedCaptions = watch('captions').filter((_, i) => i !== index);
+    const updatedKeys = imageKeys.filter((_, i) => i !== index);
+
     URL.revokeObjectURL(imagePreviews[index]);
     setImagePreviews(updatedPreviews);
+    setImageKeys(updatedKeys);
     setValue('images', updatedImages);
-    setValue('captions', watch('captions').filter((_, i) => i !== index));
-  };
-
-  // Handle footfall input
-  const handleFootfallChange = (e) => {
-    const rawValue = e.target.value.replace(/,/g, '');
-    if (!isNaN(rawValue) && rawValue >= 0 && rawValue <= 999999999) {
-      setFootfallRaw(rawValue);
-      setValue('footfall', rawValue, { shouldValidate: true });
-    } else if (rawValue === '') {
-      setFootfallRaw('');
-      setValue('footfall', '');
-    }
-  };
-
-  // Handle monthly rate input
-  const handleMonthlyRateChange = (e) => {
-    const rawValue = e.target.value.replace(/,/g, '');
-    if (!isNaN(rawValue) && rawValue >= 0) {
-      setMonthlyRateRaw(rawValue);
-      setValue('baseMonthlyRate', rawValue, { shouldValidate: true });
-    } else if (rawValue === '') {
-      setMonthlyRateRaw('');
-      setValue('baseMonthlyRate', '');
-    }
+    setValue('captions', updatedCaptions);
   };
 
   return (
@@ -245,19 +232,36 @@ function AddProperty() {
           </Typography>
           <Grid container spacing={2} alignItems="center">
             <Grid item xs={8}>
-              <TextField
-                label="Footfall"
-                fullWidth
-                value={footfallRaw}
-                onChange={handleFootfallChange}
-                error={!!errors.footfall}
-                helperText={
-                  errors.footfall?.message ||
-                  (footfallType && footfallRaw ? `${new Intl.NumberFormat('en-IN').format(footfallRaw)} Visitors ${footfallType}` : 'Enter footfall')
-                }
-                InputProps={{ sx: { input: { textAlign: 'right' } } }}
-                InputLabelProps={{ style: { color: 'var(--text-light)' } }}
-                sx={{ input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') } }}
+              <Controller
+                name="footfall"
+                control={control}
+                rules={{
+                  required: 'Footfall is required',
+                  validate: (value) => !isNaN(value) || 'Must be a number',
+                }}
+                render={({ field }) => (
+                  <TextField
+                    label="Footfall"
+                    fullWidth
+                    value={field.value || ''}
+                    onChange={(e) => {
+                      const rawValue = e.target.value.replace(/,/g, '');
+                      if (!isNaN(rawValue) && rawValue >= 0 && rawValue <= 999999999) {
+                        field.onChange(rawValue);
+                      } else if (rawValue === '') {
+                        field.onChange('');
+                      }
+                    }}
+                    error={!!errors.footfall}
+                    helperText={
+                      errors.footfall?.message ||
+                      (footfallType && field.value ? `${new Intl.NumberFormat('en-IN').format(field.value)} Visitors ${footfallType}` : 'Enter footfall')
+                    }
+                    InputProps={{ sx: { input: { textAlign: 'right' } } }}
+                    InputLabelProps={{ style: { color: 'var(--text-light)' } }}
+                    sx={{ input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') } }}
+                  />
+                )}
               />
             </Grid>
             <Grid item xs={4}>
@@ -283,19 +287,36 @@ function AddProperty() {
           <Typography variant="h6" sx={{ mt: 3, mb: 1, color: 'var(--primary-color)' }}>
             Pricing
           </Typography>
-          <TextField
-            label="Base Monthly Rate (₹)"
-            fullWidth
-            margin="normal"
-            value={monthlyRateRaw}
-            onChange={handleMonthlyRateChange}
-            error={!!errors.baseMonthlyRate}
-            helperText={
-              errors.baseMonthlyRate?.message ||
-              (monthlyRateRaw ? `₹${new Intl.NumberFormat('en-IN').format(monthlyRateRaw)}` : 'e.g., 50,000')
-            }
-            InputLabelProps={{ style: { color: 'var(--text-light)' } }}
-            sx={{ input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') } }}
+          <Controller
+            name="baseMonthlyRate"
+            control={control}
+            rules={{
+              required: 'Base monthly rate is required',
+              validate: (value) => !isNaN(value) || 'Must be a number',
+            }}
+            render={({ field }) => (
+              <TextField
+                label="Base Monthly Rate (₹)"
+                fullWidth
+                margin="normal"
+                value={field.value || ''}
+                onChange={(e) => {
+                  const rawValue = e.target.value.replace(/,/g, '');
+                  if (!isNaN(rawValue) && rawValue >= 0) {
+                    field.onChange(rawValue);
+                  } else if (rawValue === '') {
+                    field.onChange('');
+                  }
+                }}
+                error={!!errors.baseMonthlyRate}
+                helperText={
+                  errors.baseMonthlyRate?.message ||
+                  (field.value ? `₹${new Intl.NumberFormat('en-IN').format(field.value)}` : 'e.g., 50,000')
+                }
+                InputLabelProps={{ style: { color: 'var(--text-light)' } }}
+                sx={{ input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') } }}
+              />
+            )}
           />
 
           {/* Availability */}
@@ -316,6 +337,7 @@ function AddProperty() {
                   helperText={errors.availabilityStart?.message || 'Select start date'}
                   InputLabelProps={{ style: { color: 'var(--text-light)' } }}
                   sx={{ input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') } }}
+                  {...register('availabilityStart', { required: 'Start date is required' })}
                 />
               )}
             />
@@ -370,7 +392,7 @@ function AddProperty() {
             <Box sx={{ mt: 3 }}>
               <Grid container spacing={2}>
                 {imagePreviews.map((preview, index) => (
-                  <Grid item xs={12} sm={6} key={index}>
+                  <Grid item xs={12} sm={6} key={imageKeys[index]}>
                     <Box sx={{ border: '1px solid #e0e0e0', borderRadius: 2, p: 1, position: 'relative' }}>
                       <IconButton
                         onClick={() => removeImage(index)}

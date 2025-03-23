@@ -19,6 +19,7 @@ const AdSpace = require('./models/AdSpace');
 const multer = require('multer');
 const sharp = require('sharp');
 const { GridFsStorage } = require('multer-gridfs-storage');
+const { auth } = require('./middleware/auth'); // Import your auth middleware
 
 dotenv.config();
 const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -94,13 +95,13 @@ app.use('/api/properties', propertyRoutes);
 app.use('/api/requests', requestRoutes);
 
 // Add Property Route with Sharp Compression and GridFS
-app.post('/api/properties/add', upload.array('images', 5), async (req, res) => {
+app.post('/api/properties/add', auth, upload.array('images', 5), async (req, res) => {
   try {
     const imageIds = [];
     for (const file of req.files) {
       const compressedBuffer = await sharp(file.buffer)
-        .resize({ width: 800 }) // Resize to 800px width
-        .jpeg({ quality: 80 }) // Compress to 80% quality
+        .resize({ width: 800 })
+        .jpeg({ quality: 80 })
         .toBuffer();
 
       const filename = `${Date.now()}-${file.originalname}`;
@@ -110,7 +111,7 @@ app.post('/api/properties/add', upload.array('images', 5), async (req, res) => {
     }
 
     const adSpace = new AdSpace({
-      owner: req.user?.id || 'placeholder-owner-id', // Replace with actual auth logic
+      owner: req.user.id, // Now guaranteed to exist due to auth middleware
       title: req.body.title,
       description: req.body.description,
       images: imageIds,
@@ -120,17 +121,18 @@ app.post('/api/properties/add', upload.array('images', 5), async (req, res) => {
       pricing: {
         baseMonthlyRate: Number(req.body.baseMonthlyRate),
       },
-      terms: req.body.terms,
+      terms: req.body.terms || '',
       availability: {
-        startDate: req.body.availabilityStart ? new Date(req.body.availabilityStart) : undefined,
+        startDate: req.body.availabilityStart ? new Date(req.body.availabilityStart) : new Date(), // Default to now if not provided
         endDate: req.body.availabilityEnd ? new Date(req.body.availabilityEnd) : undefined,
       },
     });
+
     await adSpace.save();
     res.status(201).json(adSpace);
   } catch (error) {
     console.error('Error adding AdSpace:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: error.message || 'Server error' });
   }
 });
 
