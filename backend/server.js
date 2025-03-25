@@ -27,11 +27,6 @@ const io = new Server(server, { cors: { origin: frontendUrl } });
 connectDB();
 const mongoURI = process.env.MONGO_URI;
 const conn = mongoose.createConnection(mongoURI);
-let bucket;
-conn.once('open', () => {
-  bucket = new mongoose.mongo.GridFSBucket(conn.db, { bucketName: 'images' });
-  console.log('GridFS bucket initialized');
-});
 
 // Multer Setup with Memory Storage
 const upload = multer({ storage: multer.memoryStorage() });
@@ -44,8 +39,17 @@ app.use(helmet());
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
 app.use(passport.initialize());
 
-// Make bucket and upload available to routes
-app.set('bucket', bucket);
+// GridFS Bucket Initialization
+conn.once('open', () => {
+  const bucket = new mongoose.mongo.GridFSBucket(conn.db, { bucketName: 'images' });
+  app.set('bucket', bucket); // Set bucket after initialization
+  console.log('GridFS bucket initialized');
+}).on('error', (err) => {
+  console.error('GridFS connection error:', err);
+  process.exit(1);
+});
+
+// Make upload available to routes
 app.set('upload', upload);
 
 // Socket.IO
@@ -98,12 +102,14 @@ app.use('/api/requests', requestRoutes);
 // Serve Images
 app.get('/api/images/:id', (req, res) => {
   try {
+    const bucket = req.app.get('bucket');
+    if (!bucket) throw new Error('GridFS bucket not initialized');
     const fileId = new mongoose.Types.ObjectId(req.params.id);
     bucket.openDownloadStream(fileId).pipe(res).on('error', () => {
       res.status(404).json({ message: 'Image not found' });
     });
   } catch (error) {
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 

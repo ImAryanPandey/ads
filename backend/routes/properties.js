@@ -9,13 +9,16 @@ router.post('/add', auth, role('owner'), async (req, res) => {
   const upload = req.app.get('upload');
   const bucket = req.app.get('bucket');
 
+  if (!bucket) {
+    return res.status(500).json({ message: 'GridFS bucket not initialized' });
+  }
+
   upload.array('images', 5)(req, res, async (err) => {
     if (err) {
       return res.status(400).json({ message: 'Error uploading images', error: err.message });
     }
 
     try {
-      // Process and upload images to GridFS
       const imageData = [];
       for (let i = 0; i < req.files.length; i++) {
         const file = req.files[i];
@@ -53,7 +56,7 @@ router.post('/add', auth, role('owner'), async (req, res) => {
       });
 
       await adSpace.save();
-      await redisClient.del('availableAdSpaces'); // Invalidate cache
+      await redisClient.del('availableAdSpaces');
       res.status(201).json(adSpace);
     } catch (error) {
       console.error('Error adding AdSpace:', error);
@@ -95,6 +98,27 @@ router.get('/analytics', auth, role('owner'), async (req, res) => {
     res.status(200).json({ total, available, requested });
   } catch (error) {
     console.error('Error fetching analytics:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Add the delete route here
+router.delete('/:id', auth, role('owner'), async (req, res) => {
+  const bucket = req.app.get('bucket');
+  try {
+    const adSpace = await AdSpace.findOne({ _id: req.params.id, owner: req.user.id });
+    if (!adSpace) return res.status(404).json({ message: 'AdSpace not found' });
+
+    // Delete associated images from GridFS
+    for (const img of adSpace.images) {
+      await bucket.delete(img.imageId);
+    }
+
+    await adSpace.deleteOne();
+    await redisClient.del('availableAdSpaces');
+    res.status(200).json({ message: 'AdSpace deleted' });
+  } catch (error) {
+    console.error('Error deleting AdSpace:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
