@@ -4,7 +4,12 @@ const adSpaceSchema = new mongoose.Schema({
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   title: { type: String, required: true },
   description: { type: String, required: true },
-  images: [{ type: mongoose.Schema.Types.ObjectId, ref: 'images.files' }],
+  images: [
+    {
+      imageId: { type: mongoose.Schema.Types.ObjectId, ref: 'images.files' },
+      caption: { type: String, default: '' },
+    },
+  ],
   address: { type: String, required: true },
   footfall: { type: Number, required: true },
   footfallType: { type: String, enum: ['Daily', 'Weekly', 'Monthly'], required: true },
@@ -12,7 +17,7 @@ const adSpaceSchema = new mongoose.Schema({
     baseMonthlyRate: { type: Number, required: true },
   },
   availability: {
-    startDate: { type: Date, required: true }, // Changed back to required
+    startDate: { type: Date, required: true },
     endDate: { type: Date },
   },
   status: { type: String, enum: ['Available', 'Requested', 'Approved', 'Rejected'], default: 'Available' },

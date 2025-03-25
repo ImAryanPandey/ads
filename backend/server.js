@@ -15,11 +15,7 @@ const authRoutes = require('./routes/auth');
 const propertyRoutes = require('./routes/properties');
 const requestRoutes = require('./routes/requests');
 const User = require('./models/User');
-const AdSpace = require('./models/AdSpace');
 const multer = require('multer');
-const sharp = require('sharp');
-const { GridFsStorage } = require('multer-gridfs-storage');
-const { auth } = require('./middleware/auth'); // Import your auth middleware
 
 dotenv.config();
 const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -34,6 +30,7 @@ const conn = mongoose.createConnection(mongoURI);
 let bucket;
 conn.once('open', () => {
   bucket = new mongoose.mongo.GridFSBucket(conn.db, { bucketName: 'images' });
+  console.log('GridFS bucket initialized');
 });
 
 // Multer Setup with Memory Storage
@@ -46,6 +43,10 @@ app.use(express.json());
 app.use(helmet());
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
 app.use(passport.initialize());
+
+// Make bucket and upload available to routes
+app.set('bucket', bucket);
+app.set('upload', upload);
 
 // Socket.IO
 io.on('connection', (socket) => {
@@ -94,48 +95,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/properties', propertyRoutes);
 app.use('/api/requests', requestRoutes);
 
-// Add Property Route with Sharp Compression and GridFS
-app.post('/api/properties/add', auth, upload.array('images', 5), async (req, res) => {
-  try {
-    const imageIds = [];
-    for (const file of req.files) {
-      const compressedBuffer = await sharp(file.buffer)
-        .resize({ width: 800 })
-        .jpeg({ quality: 80 })
-        .toBuffer();
-
-      const filename = `${Date.now()}-${file.originalname}`;
-      const uploadStream = bucket.openUploadStream(filename);
-      uploadStream.end(compressedBuffer);
-      imageIds.push(uploadStream.id);
-    }
-
-    const adSpace = new AdSpace({
-      owner: req.user.id, // Now guaranteed to exist due to auth middleware
-      title: req.body.title,
-      description: req.body.description,
-      images: imageIds,
-      address: req.body.address,
-      footfall: Number(req.body.footfall),
-      footfallType: req.body.footfallType,
-      pricing: {
-        baseMonthlyRate: Number(req.body.baseMonthlyRate),
-      },
-      terms: req.body.terms || '',
-      availability: {
-        startDate: req.body.availabilityStart ? new Date(req.body.availabilityStart) : new Date(), // Default to now if not provided
-        endDate: req.body.availabilityEnd ? new Date(req.body.availabilityEnd) : undefined,
-      },
-    });
-
-    await adSpace.save();
-    res.status(201).json(adSpace);
-  } catch (error) {
-    console.error('Error adding AdSpace:', error);
-    res.status(500).json({ message: error.message || 'Server error' });
-  }
-});
-
 // Serve Images
 app.get('/api/images/:id', (req, res) => {
   try {
@@ -146,6 +105,12 @@ app.get('/api/images/:id', (req, res) => {
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ message: 'Something went wrong!' });
 });
 
 const PORT = process.env.PORT || 5000;
