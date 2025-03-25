@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useForm, useWatch, Controller } from 'react-hook-form'; // Add Controller
+import { useForm, useWatch, Controller } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
@@ -324,36 +324,56 @@ function AddProperty() {
             Availability
           </Typography>
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <DatePicker
-              label="Available From"
-              value={watch('availabilityStart')}
-              onChange={(date) => setValue('availabilityStart', date, { shouldValidate: true })}
-              minDate={new Date()}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  fullWidth
-                  error={!!errors.availabilityStart}
-                  helperText={errors.availabilityStart?.message || 'Select start date'}
-                  InputLabelProps={{ style: { color: 'var(--text-light)' } }}
-                  sx={{ input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') } }}
-                  {...register('availabilityStart', { required: 'Start date is required' })}
+            <Controller
+              name="availabilityStart"
+              control={control}
+              rules={{ required: 'Start date is required' }}
+              render={({ field }) => (
+                <DatePicker
+                  label="Available From"
+                  value={field.value}
+                  onChange={field.onChange}
+                  minDate={new Date()}
+                  slotProps={{
+                    textField: {
+                      fullWidth: true,
+                      error: !!errors.availabilityStart,
+                      helperText: errors.availabilityStart?.message || 'Select start date',
+                      InputLabelProps: { style: { color: 'var(--text-light)' } },
+                      sx: {
+                        input: {
+                          color: (theme) =>
+                            theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)',
+                        },
+                      },
+                    },
+                  }}
                 />
               )}
             />
-            <DatePicker
-              label="Available Until (Optional)"
-              value={watch('availabilityEnd')}
-              onChange={(date) => setValue('availabilityEnd', date)}
-              minDate={watch('availabilityStart') || new Date()}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  fullWidth
-                  error={!!errors.availabilityEnd}
-                  helperText={errors.availabilityEnd?.message || 'Leave blank if always available'}
-                  InputLabelProps={{ style: { color: 'var(--text-light)' } }}
-                  sx={{ input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') } }}
+            <Controller
+              name="availabilityEnd"
+              control={control}
+              render={({ field }) => (
+                <DatePicker
+                  label="Available Until (Optional)"
+                  value={field.value}
+                  onChange={field.onChange}
+                  minDate={watch('availabilityStart') || new Date()}
+                  slotProps={{
+                    textField: {
+                      fullWidth: true,
+                      error: !!errors.availabilityEnd,
+                      helperText: errors.availabilityEnd?.message || 'Leave blank if always available',
+                      InputLabelProps: { style: { color: 'var(--text-light)' } },
+                      sx: {
+                        input: {
+                          color: (theme) =>
+                            theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)',
+                        },
+                      },
+                    },
+                  }}
                 />
               )}
             />
