@@ -36,13 +36,23 @@ app.use(cookieParser());
 app.use(cors({ origin: frontendUrl, credentials: true }));
 app.use(express.json());
 app.use(helmet());
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
+
+// Rate Limiting - Increased max to 1000 for testing
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // Increased to 1000 requests per 15 minutes
+  handler: (req, res) => {
+    console.log(`Rate limit exceeded for IP: ${req.ip}`);
+    res.status(429).json({ message: 'Too many requests, please try again later' });
+  }
+}));
 app.use(passport.initialize());
 
 // GridFS Bucket Initialization
+let gridfsBucket;
 conn.once('open', () => {
-  const bucket = new mongoose.mongo.GridFSBucket(conn.db, { bucketName: 'images' });
-  app.set('bucket', bucket); // Set bucket after initialization
+  gridfsBucket = new mongoose.mongo.GridFSBucket(conn.db, { bucketName: 'images' });
+  app.set('bucket', gridfsBucket); // Set bucket after initialization
   console.log('GridFS bucket initialized');
 }).on('error', (err) => {
   console.error('GridFS connection error:', err);
@@ -99,17 +109,51 @@ app.use('/api/auth', authRoutes);
 app.use('/api/adSpaces', adSpaceRoutes);
 app.use('/api/requests', requestRoutes);
 
-// Serve Images
-app.get('/api/images/:id', (req, res) => {
+// Serve Images - Updated endpoint without gridfs-stream
+app.get('/api/images/:id', async (req, res) => {
   try {
     const bucket = req.app.get('bucket');
-    if (!bucket) throw new Error('GridFS bucket not initialized');
+    if (!bucket) {
+      console.error('GridFS bucket not initialized');
+      return res.status(500).json({ message: 'GridFS bucket not initialized' });
+    }
+
     const fileId = new mongoose.Types.ObjectId(req.params.id);
-    bucket.openDownloadStream(fileId).pipe(res).on('error', () => {
-      res.status(404).json({ message: 'Image not found' });
+    const files = await bucket.find({ _id: fileId }).toArray();
+    if (!files || files.length === 0) {
+      console.log(`Image not found for ID: ${fileId}`);
+      return res.status(404).json({ message: 'Image not found' });
+    }
+
+    const file = files[0];
+    const contentType = file.contentType || (file.filename.endsWith('.jpg') || file.filename.endsWith('.jpeg')
+      ? 'image/jpeg'
+      : file.filename.endsWith('.png')
+      ? 'image/png'
+      : 'application/octet-stream');
+    res.set('Content-Type', contentType);
+    res.status(200); // Explicitly set the status code to 200
+
+    console.log(`Starting to stream image with ID: ${fileId}, Content-Type: ${contentType}`);
+    const stream = bucket.openDownloadStream(fileId);
+    stream.on('error', (err) => {
+      console.error(`Stream error for file ID ${fileId}:`, err);
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Error streaming image' });
+      }
     });
+    stream.on('end', () => {
+      console.log(`Finished streaming file ID: ${fileId}`);
+      if (!res.headersSent) {
+        res.end();
+      }
+    });
+    stream.pipe(res);
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error(`Error in /api/images/:id endpoint:`, error.message);
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Server error', error: error.message });
+    }
   }
 });
 
