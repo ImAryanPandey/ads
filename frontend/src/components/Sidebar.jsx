@@ -67,23 +67,43 @@ function Sidebar({ role, open, onClose }) {
 
   const drawerContent = (
     <Box
+      className="sidebar" // Added for dark mode styling
       sx={{
         width: 250,
         height: '100%',
-        backgroundColor: 'var(--container-light)',
+        background: 'linear-gradient(180deg, var(--container-light) 0%, var(--primary-light) 100%)',
         boxShadow: 'var(--shadow)',
       }}
     >
-      <Box sx={{ p: 2, textAlign: 'center', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h6" sx={{ color: 'var(--primary-color)', fontWeight: 600 }}>
+      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Typography
+          variant="h6"
+          sx={{
+            color: 'var(--primary-color)',
+            fontWeight: 700,
+            letterSpacing: '1px',
+            fontFamily: 'Inter, sans-serif', // Changed to Inter
+          }}
+        >
           AdSphere
         </Typography>
-        <IconButton onClick={onClose}>
-          <CloseIcon sx={{ color: 'var(--text)' }} />
+        <IconButton
+          onClick={onClose}
+          sx={{
+            color: 'var(--text)',
+            '&:hover': {
+              color: 'var(--primary-color)',
+              backgroundColor: 'var(--primary-light)',
+              transform: 'rotate(90deg)',
+              transition: 'all 0.3s ease',
+            },
+          }}
+        >
+          <CloseIcon />
         </IconButton>
       </Box>
-      <Divider />
-      <List>
+      <Divider sx={{ backgroundColor: 'var(--text-light)', opacity: 0.3, mx: 2 }} />
+      <List sx={{ pt: 1 }}>
         {menuItems.map((item) => (
           <ListItem
             button
@@ -94,15 +114,33 @@ function Sidebar({ role, open, onClose }) {
               onClose();
             }}
             sx={{
-              backgroundColor: location.pathname === item.path ? 'var(--primary-light)' : 'transparent',
+              mx: 1,
+              my: 0.5,
+              borderRadius: '8px',
+              backgroundColor: location.pathname === item.path ? 'var(--primary-color)' : 'transparent',
               '&:hover': {
-                backgroundColor: 'var(--primary-light)',
-                cursor: 'pointer', // Hand cursor on hover
+                backgroundColor: 'var(--primary-color)',
+                cursor: 'pointer',
+                '& .MuiListItemIcon-root': { color: 'white' },
+                '& .MuiListItemText-primary': { color: 'white' },
               },
-              transition: 'background-color 0.3s ease', // Smooth hover transition
+              transition: 'all 0.3s ease',
             }}
           >
-            <ListItemIcon sx={{ color: 'var(--text)' }}>
+            <ListItemIcon
+              sx={{
+                color: location.pathname === item.path ? 'white' : 'var(--text)',
+                backgroundColor: location.pathname === item.path ? 'var(--primary-dark)' : 'var(--container-light)',
+                borderRadius: '50%',
+                p: 1,
+                minWidth: '40px',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                transition: 'all 0.3s ease',
+              }}
+            >
               {item.badge ? (
                 <Badge badgeContent={item.badge} color="error">
                   {item.icon}
@@ -111,7 +149,15 @@ function Sidebar({ role, open, onClose }) {
                 item.icon
               )}
             </ListItemIcon>
-            <ListItemText primary={item.text} primaryTypographyProps={{ color: 'var(--text)' }} />
+            <ListItemText
+              primary={item.text}
+              primaryTypographyProps={{
+                color: location.pathname === item.path ? 'white' : 'var(--text)',
+                fontWeight: 500,
+                fontFamily: 'Inter, sans-serif', // Changed to Inter
+                transition: 'color 0.3s ease',
+              }}
+            />
           </ListItem>
         ))}
       </List>
@@ -127,7 +173,6 @@ function Sidebar({ role, open, onClose }) {
         '& .MuiDrawer-paper': {
           boxSizing: 'border-box',
           width: 250,
-          backgroundColor: 'var(--container-light)',
           boxShadow: 'var(--shadow)',
         },
       }}
