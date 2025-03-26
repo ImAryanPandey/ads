@@ -1,7 +1,6 @@
 // frontend/src/components/ProfileDropdown.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../utils/api.js';
 import { toast } from 'react-toastify';
 import { Box, IconButton, Menu, MenuItem, Typography } from '@mui/material';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
@@ -14,8 +13,13 @@ function ProfileDropdown() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const response = await api.get('/auth/me');
-        setUser(response.data);
+        const response = await fetch('http://localhost:5000/api/auth/me', {
+          method: 'GET',
+          credentials: 'include',
+        });
+        if (!response.ok) throw new Error('Failed to fetch user');
+        const data = await response.json();
+        setUser(data);
       } catch (error) {
         console.error('Error fetching user:', error);
       }
@@ -33,7 +37,11 @@ function ProfileDropdown() {
 
   const handleLogout = async () => {
     try {
-      await api.post('/auth/logout');
+      const response = await fetch('http://localhost:5000/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to logout');
       toast.success('Logged out successfully!');
       navigate('/login');
     } catch (error) {
