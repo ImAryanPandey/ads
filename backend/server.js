@@ -12,7 +12,7 @@ const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
 const { connectDB } = require('./db');
 const authRoutes = require('./routes/auth');
-const propertyRoutes = require('./routes/properties');
+const adSpaceRoutes = require('./routes/adSpaces');
 const requestRoutes = require('./routes/requests');
 const User = require('./models/User');
 const multer = require('multer');
@@ -96,7 +96,7 @@ passport.use(
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/properties', propertyRoutes);
+app.use('/api/adSpaces', adSpaceRoutes);
 app.use('/api/requests', requestRoutes);
 
 // Serve Images

@@ -13,7 +13,7 @@ function AnalyticsDashboard() {
   useEffect(() => {
     const fetchAnalytics = async () => {
       try {
-        const response = await axios.get(`${import.meta.env.VITE_API_URL}/properties/analytics`);
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/adSpaces/analytics`);
         setData([
           { name: 'Total', value: response.data.total },
           { name: 'Available', value: response.data.available },

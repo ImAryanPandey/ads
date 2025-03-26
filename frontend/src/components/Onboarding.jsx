@@ -51,7 +51,7 @@ function Onboarding() {
           error={!!errors.role}
           helperText={errors.role?.message}
         >
-          <MenuItem value="owner">Property Owner</MenuItem>
+          <MenuItem value="owner">AdSpace Owner</MenuItem>
           <MenuItem value="advertiser">Advertiser</MenuItem>
         </TextField>
 

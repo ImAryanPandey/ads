@@ -22,7 +22,7 @@ function Dashboard() {
         setRole(userRole);
 
         if (userRole === 'owner') {
-          const adResponse = await axios.get(`${import.meta.env.VITE_API_URL}/properties/my`);
+          const adResponse = await axios.get(`${import.meta.env.VITE_API_URL}/adSpaces/my`);
           setAdSpaces(adResponse.data);
 
           const reqResponse = await axios.get(`${import.meta.env.VITE_API_URL}/requests/my`);
@@ -51,7 +51,7 @@ function Dashboard() {
       <Typography variant="h4" gutterBottom>Dashboard</Typography>
       {role === 'owner' ? (
         <>
-          <Button variant="contained" onClick={() => navigate('/add-property')} sx={{ mb: 3 }}>
+          <Button variant="contained" onClick={() => navigate('/add-adSpace')} sx={{ mb: 3 }}>
             Add New AdSpace
           </Button>
           <Typography variant="h6">My AdSpaces</Typography>
@@ -99,7 +99,7 @@ function Dashboard() {
           <AnalyticsDashboard />
         </>
       ) : (
-        <Button variant="contained" onClick={() => navigate('/browse-properties')}>
+        <Button variant="contained" onClick={() => navigate('/browse-adSpaces')}>
           Browse AdSpaces
         </Button>
       )}

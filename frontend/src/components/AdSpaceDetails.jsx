@@ -5,7 +5,7 @@ import axios from 'axios';
 import { toast } from 'react-toastify';
 import { Box, Typography, Button, TextField, MenuItem } from '@mui/material';
 
-function PropertyDetails() {
+function AdSpaceDetails() {
   const { id } = useParams();
   const [adSpace, setAdSpace] = useState(null);
   const { register, handleSubmit, formState: { errors } } = useForm();
@@ -13,7 +13,7 @@ function PropertyDetails() {
   useEffect(() => {
     const fetchAdSpace = async () => {
       try {
-        const response = await axios.get(`${import.meta.env.VITE_API_URL}/properties/available`);
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/adSpaces/available`);
         const ad = response.data.find(a => a._id === id);
         setAdSpace(ad);
       } catch (error) {
@@ -88,4 +88,4 @@ function PropertyDetails() {
   );
 }
 
-export default PropertyDetails;
+export default AdSpaceDetails;

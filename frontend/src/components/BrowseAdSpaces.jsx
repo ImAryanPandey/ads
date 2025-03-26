@@ -23,7 +23,7 @@ const StyledCard = styled(motion.div)`
   }
 `;
 
-function BrowseProperties() {
+function BrowseAdSpaces() {
   const [adSpaces, setAdSpaces] = useState([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -31,7 +31,7 @@ function BrowseProperties() {
   useEffect(() => {
     const fetchAdSpaces = async () => {
       try {
-        const response = await axios.get(`${import.meta.env.VITE_API_URL}/properties/available`);
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/adSpaces/available`);
         setAdSpaces(response.data);
         setLoading(false);
       } catch (error) {
@@ -70,7 +70,7 @@ function BrowseProperties() {
                 <Button
                   variant="contained"
                   sx={{ mt: 2, bgcolor: 'var(--primary-color)', '&:hover': { bgcolor: '#5B4CD6' } }}
-                  onClick={() => navigate(`/property/${ad._id}`)}
+                  onClick={() => navigate(`/adSpace/${ad._id}`)}
                 >
                   View Details
                 </Button>
@@ -83,4 +83,4 @@ function BrowseProperties() {
   );
 }
 
-export default BrowseProperties;
+export default BrowseAdSpaces;

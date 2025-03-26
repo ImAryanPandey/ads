@@ -45,7 +45,7 @@ const FileInput = styled('div')(({ theme, isDragging }) => ({
   },
 }));
 
-function AddProperty() {
+function AddAdSpace() {
   const { register, handleSubmit, control, formState: { errors }, setValue, watch } = useForm({
     defaultValues: {
       title: '',
@@ -97,7 +97,7 @@ function AddProperty() {
     }
 
     try {
-      const response = await axios.post(`${import.meta.env.VITE_API_URL}/properties/add`, formData, {
+      const response = await axios.post(`${import.meta.env.VITE_API_URL}/adSpaces/add`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         withCredentials: true,
       });
@@ -484,4 +484,4 @@ function AddProperty() {
   );
 }
 
-export default AddProperty;
+export default AddAdSpace;

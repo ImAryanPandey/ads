@@ -90,11 +90,11 @@ function Login() {
       <ImageContainer>
         <Image
           src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800"
-          alt="Property"
+          alt="AdSpace"
           initial={{ x: -100, opacity: 0 }}
           animate={{ x: 0, opacity: 0.7 }}
           transition={{ duration: 1 }}
-          onError={(e) => (e.target.src = 'https://via.placeholder.com/800x600?text=Property+Image')}
+          onError={(e) => (e.target.src = 'https://via.placeholder.com/800x600?text=AdSpace+Image')}
         />
         <Image
           src="https://images.unsplash.com/photo-1644322679708-b7fb91e25ce0?auto=format&fit=crop&w=800"
@@ -115,7 +115,7 @@ function Login() {
           AdSphere
         </Typography>
         <Typography variant="body2" sx={{ mb: 3, color: 'var(--text-light)' }}>
-          Connecting properties and advertisers effortlessly
+          Connecting adSpaces and advertisers effortlessly
         </Typography>
         <form onSubmit={handleSubmit(onSubmit)}>
           <TextField
