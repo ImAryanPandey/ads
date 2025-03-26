@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
-import { Box, Typography, Grid, Card, CardContent, Button } from '@mui/material';
+import { Box, Typography, Grid, Card, CardContent, Button, CardMedia } from '@mui/material';
 import { motion } from 'framer-motion';
 import styled from '@emotion/styled';
 import LoadingSpinner from './LoadingSpinner';
@@ -50,27 +50,33 @@ function BrowseAdSpaces() {
         Browse AdSpaces
       </Typography>
       <Grid container spacing={3}>
-        {adSpaces.map((ad) => (
-          <Grid item xs={12} sm={6} md={4} key={ad._id}>
+        {adSpaces.map((adSpace) => (
+          <Grid item xs={12} sm={6} md={4} key={adSpace._id}>
             <StyledCard
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
             >
+              <CardMedia
+                component="img"
+                height="140"
+                image={adSpace.images?.[0]?.imageId ? `${import.meta.env.VITE_API_URL}/images/${adSpace.images[0].imageId}` : 'https://via.placeholder.com/150'}
+                alt={adSpace.title}
+              />
               <CardContent>
                 <Typography variant="h6" sx={{ fontWeight: 500 }}>
-                  {ad.title}
+                  {adSpace.title}
                 </Typography>
                 <Typography variant="body2" sx={{ color: 'var(--text-light)', mb: 2 }}>
-                  {ad.description}
+                  {adSpace.description}
                 </Typography>
                 <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                  ₹{ad.pricing.monthly}/month
+                  ₹{adSpace.pricing.baseMonthlyRate}/month
                 </Typography>
                 <Button
                   variant="contained"
                   sx={{ mt: 2, bgcolor: 'var(--primary-color)', '&:hover': { bgcolor: '#5B4CD6' } }}
-                  onClick={() => navigate(`/adSpace/${ad._id}`)}
+                  onClick={() => navigate(`/adSpace/${adSpace._id}`)}
                 >
                   View Details
                 </Button>

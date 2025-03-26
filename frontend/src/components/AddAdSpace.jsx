@@ -23,7 +23,6 @@ import DeleteIcon from '@mui/icons-material/Delete';
 
 axios.defaults.withCredentials = true;
 
-// Styled component for the file input
 const FileInput = styled('div')(({ theme, isDragging }) => ({
   border: `2px dashed var(--primary-color)`,
   borderRadius: '8px',
@@ -67,14 +66,12 @@ function AddAdSpace() {
   const [imageKeys, setImageKeys] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Cleanup image previews on unmount
   useEffect(() => {
     return () => {
       imagePreviews.forEach((preview) => URL.revokeObjectURL(preview));
     };
   }, [imagePreviews]);
 
-  // Form submission handler
   const onSubmit = async (data) => {
     const formData = new FormData();
     formData.append('title', data.title);
@@ -91,13 +88,8 @@ function AddAdSpace() {
     formData.append('availabilityStart', data.availabilityStart.toISOString());
     if (data.availabilityEnd) formData.append('availabilityEnd', data.availabilityEnd.toISOString());
 
-    console.log('FormData entries:');
-    for (let pair of formData.entries()) {
-      console.log(`${pair[0]}: ${pair[1]}`);
-    }
-
     try {
-      const response = await axios.post(`${import.meta.env.VITE_API_URL}/adSpaces/add`, formData, {
+      await axios.post(`${import.meta.env.VITE_API_URL}/adSpaces/add`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         withCredentials: true,
       });
@@ -109,7 +101,6 @@ function AddAdSpace() {
     }
   };
 
-  // Handle image upload (for both click and drag-and-drop)
   const handleImageChange = (files) => {
     const newFiles = Array.from(files);
     const imageFiles = newFiles.filter((file) => file.type.startsWith('image/'));
@@ -123,12 +114,10 @@ function AddAdSpace() {
     setValue('images', [...watch('images'), ...imageFiles]);
   };
 
-  // Handle file input change (click to upload)
   const handleFileInputChange = (e) => {
     handleImageChange(e.target.files);
   };
 
-  // Handle drag-and-drop events
   const handleDragOver = (e) => {
     e.preventDefault();
     setIsDragging(true);
@@ -153,7 +142,6 @@ function AddAdSpace() {
     }
   };
 
-  // Remove an image
   const removeImage = (index) => {
     const updatedPreviews = imagePreviews.filter((_, i) => i !== index);
     const updatedImages = watch('images').filter((_, i) => i !== index);
@@ -188,7 +176,6 @@ function AddAdSpace() {
           Add New AdSpace
         </Typography>
         <form onSubmit={handleSubmit(onSubmit)}>
-          {/* Title */}
           <TextField
             label="Title"
             fullWidth
@@ -197,10 +184,12 @@ function AddAdSpace() {
             error={!!errors.title}
             helperText={errors.title?.message}
             InputLabelProps={{ style: { color: 'var(--text-light)' } }}
-            sx={{ input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') } }}
+            sx={{
+              input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') },
+              backgroundColor: 'var(--container-light)',
+              borderRadius: '8px',
+            }}
           />
-
-          {/* Description */}
           <TextField
             label="Description"
             fullWidth
@@ -211,10 +200,12 @@ function AddAdSpace() {
             error={!!errors.description}
             helperText={errors.description?.message}
             InputLabelProps={{ style: { color: 'var(--text-light)' } }}
-            sx={{ input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') } }}
+            sx={{
+              input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') },
+              backgroundColor: 'var(--container-light)',
+              borderRadius: '8px',
+            }}
           />
-
-          {/* Address */}
           <TextField
             label="Address"
             fullWidth
@@ -223,10 +214,12 @@ function AddAdSpace() {
             error={!!errors.address}
             helperText={errors.address?.message}
             InputLabelProps={{ style: { color: 'var(--text-light)' } }}
-            sx={{ input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') } }}
+            sx={{
+              input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') },
+              backgroundColor: 'var(--container-light)',
+              borderRadius: '8px',
+            }}
           />
-
-          {/* Footfall */}
           <Typography variant="h6" sx={{ mt: 3, mb: 1, color: 'var(--primary-color)' }}>
             Estimated Footfall
           </Typography>
@@ -259,7 +252,11 @@ function AddAdSpace() {
                     }
                     InputProps={{ sx: { input: { textAlign: 'right' } } }}
                     InputLabelProps={{ style: { color: 'var(--text-light)' } }}
-                    sx={{ input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') } }}
+                    sx={{
+                      input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') },
+                      backgroundColor: 'var(--container-light)',
+                      borderRadius: '8px',
+                    }}
                   />
                 )}
               />
@@ -271,7 +268,11 @@ function AddAdSpace() {
                   label="Frequency"
                   defaultValue=""
                   {...register('footfallType', { required: 'Frequency is required' })}
-                  sx={{ color: (theme) => (theme.palette.mode === 'dark' ? 'var(--text-dark)' : 'var(--text-light)') }}
+                  sx={{
+                    color: (theme) => (theme.palette.mode === 'dark' ? 'var(--text-dark)' : 'var(--text-light)'),
+                    backgroundColor: 'var(--container-light)',
+                    borderRadius: '8px',
+                  }}
                 >
                   <MenuItem value="">Select</MenuItem>
                   <MenuItem value="Daily">Daily</MenuItem>
@@ -282,8 +283,6 @@ function AddAdSpace() {
               </FormControl>
             </Grid>
           </Grid>
-
-          {/* Pricing */}
           <Typography variant="h6" sx={{ mt: 3, mb: 1, color: 'var(--primary-color)' }}>
             Pricing
           </Typography>
@@ -314,12 +313,14 @@ function AddAdSpace() {
                   (field.value ? `₹${new Intl.NumberFormat('en-IN').format(field.value)}` : 'e.g., 50,000')
                 }
                 InputLabelProps={{ style: { color: 'var(--text-light)' } }}
-                sx={{ input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') } }}
+                sx={{
+                  input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') },
+                  backgroundColor: 'var(--container-light)',
+                  borderRadius: '8px',
+                }}
               />
             )}
           />
-
-          {/* Availability */}
           <Typography variant="h6" sx={{ mt: 3, mb: 1, color: 'var(--primary-color)' }}>
             Availability
           </Typography>
@@ -345,6 +346,8 @@ function AddAdSpace() {
                           color: (theme) =>
                             theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)',
                         },
+                        backgroundColor: 'var(--container-light)',
+                        borderRadius: '8px',
                       },
                     },
                   }}
@@ -371,6 +374,8 @@ function AddAdSpace() {
                           color: (theme) =>
                             theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)',
                         },
+                        backgroundColor: 'var(--container-light)',
+                        borderRadius: '8px',
                       },
                     },
                   }}
@@ -378,8 +383,6 @@ function AddAdSpace() {
               )}
             />
           </Box>
-
-          {/* Image Upload */}
           <Typography variant="h6" sx={{ mt: 3, mb: 1, color: 'var(--primary-color)' }}>
             Upload Images
           </Typography>
@@ -407,7 +410,6 @@ function AddAdSpace() {
               </Typography>
             </label>
           </FileInput>
-
           {imagePreviews.length > 0 && (
             <Box sx={{ mt: 3 }}>
               <Grid container spacing={2}>
@@ -434,7 +436,11 @@ function AddAdSpace() {
                         error={!!errors.captions?.[index]}
                         helperText={errors.captions?.[index]?.message || 'Describe the image'}
                         InputLabelProps={{ style: { color: 'var(--text-light)' } }}
-                        sx={{ input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') } }}
+                        sx={{
+                          input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') },
+                          backgroundColor: 'var(--container-light)',
+                          borderRadius: '8px',
+                        }}
                       />
                     </Box>
                   </Grid>
@@ -442,8 +448,6 @@ function AddAdSpace() {
               </Grid>
             </Box>
           )}
-
-          {/* Terms */}
           <Typography variant="h6" sx={{ mt: 3, mb: 1, color: 'var(--primary-color)' }}>
             Terms (Optional)
           </Typography>
@@ -461,10 +465,12 @@ function AddAdSpace() {
             error={!!errors.terms}
             helperText={errors.terms?.message || 'Add specific conditions if needed'}
             InputLabelProps={{ style: { color: 'var(--text-light)' } }}
-            sx={{ input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') } }}
+            sx={{
+              input: { color: (theme) => (theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)') },
+              backgroundColor: 'var(--container-light)',
+              borderRadius: '8px',
+            }}
           />
-
-          {/* Submit Button */}
           <Button
             type="submit"
             variant="contained"
@@ -473,7 +479,7 @@ function AddAdSpace() {
               mt: 4,
               py: 1.5,
               backgroundColor: 'var(--primary-color)',
-              '&:hover': { backgroundColor: 'var(--secondary-color)' },
+              '&:hover': { backgroundColor: 'var(--primary-dark)' },
             }}
           >
             Add AdSpace

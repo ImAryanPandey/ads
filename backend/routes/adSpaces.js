@@ -91,25 +91,72 @@ router.get('/available', async (req, res) => {
 
 router.get('/analytics', auth, role('owner'), async (req, res) => {
   try {
+    // Overview Metrics
     const adSpaces = await AdSpace.find({ owner: req.user.id });
     const total = adSpaces.length;
-    const available = adSpaces.filter((ad) => ad.status === 'Available').length;
-    const requested = adSpaces.filter((ad) => ad.status === 'Requested').length;
-    res.status(200).json({ total, available, requested });
+    const available = adSpaces.filter(ad => ad.status === 'Available').length;
+    const requested = adSpaces.filter(ad => ad.status === 'Requested').length;
+    const approved = adSpaces.filter(ad => ad.status === 'Approved').length;
+
+    // Revenue Over Time (Monthly)
+    const revenueData = await AdSpace.aggregate([
+      { $match: { owner: req.user.id, status: 'Approved' } },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m', date: '$availability.startDate' } },
+          revenue: { $sum: '$pricing.baseMonthlyRate' },
+        },
+      },
+      { $sort: { '_id': 1 } },
+    ]).then(results =>
+      results.map(result => ({
+        month: result._id,
+        revenue: result.revenue,
+      }))
+    );
+
+    // Footfall Trends (Monthly Average)
+    const footfallData = await AdSpace.aggregate([
+      { $match: { owner: req.user.id } },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m', date: '$availability.startDate' } },
+          avgFootfall: { $avg: '$footfall' },
+        },
+      },
+      { $sort: { '_id': 1 } },
+    ]).then(results =>
+      results.map(result => ({
+        month: result._id,
+        avgFootfall: result.avgFootfall.toFixed(0),
+      }))
+    );
+
+    // Booking Rate Distribution
+    const bookingRateData = [
+      { name: 'Approved', value: approved },
+      { name: 'Requested', value: requested },
+      { name: 'Available', value: available },
+    ];
+
+    res.status(200).json({
+      overview: { total, available, requested, approved },
+      revenue: revenueData,
+      footfall: footfallData,
+      bookingRate: bookingRateData,
+    });
   } catch (error) {
     console.error('Error fetching analytics:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Add the delete route here
 router.delete('/:id', auth, role('owner'), async (req, res) => {
   const bucket = req.app.get('bucket');
   try {
     const adSpace = await AdSpace.findOne({ _id: req.params.id, owner: req.user.id });
     if (!adSpace) return res.status(404).json({ message: 'AdSpace not found' });
 
-    // Delete associated images from GridFS
     for (const img of adSpace.images) {
       await bucket.delete(img.imageId);
     }
