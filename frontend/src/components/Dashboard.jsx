@@ -43,6 +43,7 @@ function Dashboard() {
         });
         if (!userResponse.ok) throw new Error('Failed to fetch user');
         const userData = await userResponse.json();
+        console.log('User data from /auth/me:', userData);
         const userRole = userData.role;
         setRole(userRole);
 
@@ -54,8 +55,6 @@ function Dashboard() {
           });
           if (!adSpaceResponse.ok) throw new Error('Failed to fetch AdSpaces');
           const fetchedAdSpaces = await adSpaceResponse.json();
-
-          // Log the number of ad spaces and images
           console.log('Number of ad spaces:', fetchedAdSpaces.length);
           fetchedAdSpaces.forEach((adSpace) => {
             console.log(`Ad space ${adSpace._id} has ${adSpace.images.length} images`);
@@ -70,10 +69,7 @@ function Dashboard() {
                     console.log(`Fetching image with ID: ${image.imageId}`);
                     const imageResponse = await fetch(
                       `${import.meta.env.VITE_API_URL}/images/${image.imageId}`,
-                      {
-                        method: 'GET',
-                        credentials: 'include',
-                      }
+                      { method: 'GET', credentials: 'include' }
                     );
                     if (!imageResponse.ok) throw new Error('Failed to fetch image');
                     const blob = await imageResponse.blob();
@@ -88,7 +84,6 @@ function Dashboard() {
               return { ...adSpace, images: imagesWithUrls };
             })
           );
-
           setAdSpaces(adSpacesWithImageUrls);
 
           // Initialize current image index for each AdSpace
@@ -98,21 +93,43 @@ function Dashboard() {
           });
           setCurrentImages(initialImages);
 
-          // Fetch requests
-          const reqResponse = await fetch(`${import.meta.env.VITE_API_URL}/requests/my`, {
-            method: 'GET',
-            credentials: 'include',
-          });
-          if (!reqResponse.ok) throw new Error('Failed to fetch requests');
-          setRequests(await reqResponse.json());
+          // Fetch requests with error handling
+          try {
+            const reqResponse = await fetch(`${import.meta.env.VITE_API_URL}/requests/my`, {
+              method: 'GET',
+              credentials: 'include',
+            });
+            if (!reqResponse.ok) {
+              console.error('Requests fetch failed with status:', reqResponse.status);
+              throw new Error('Failed to fetch requests');
+            }
+            const requestsData = await reqResponse.json();
+            console.log('Requests data for owner:', requestsData);
+            setRequests(requestsData || []);
+          } catch (reqError) {
+            console.error('Error fetching owner requests:', reqError);
+            setRequests([]);
+            toast.warn('Could not load requests, but dashboard is still available');
+          }
         } else if (userRole === 'advertiser') {
-          // Fetch sent requests for advertisers
-          const reqResponse = await fetch(`${import.meta.env.VITE_API_URL}/requests/my`, {
-            method: 'GET',
-            credentials: 'include',
-          });
-          if (!reqResponse.ok) throw new Error('Failed to fetch requests');
-          setRequests(await reqResponse.json());
+          // Fetch sent requests with error handling
+          try {
+            const reqResponse = await fetch(`${import.meta.env.VITE_API_URL}/requests/my`, {
+              method: 'GET',
+              credentials: 'include',
+            });
+            if (!reqResponse.ok) {
+              console.error('Requests fetch failed with status:', reqResponse.status);
+              throw new Error('Failed to fetch requests');
+            }
+            const requestsData = await reqResponse.json();
+            console.log('Requests data for advertiser:', requestsData);
+            setRequests(requestsData || []);
+          } catch (reqError) {
+            console.error('Error fetching advertiser requests:', reqError);
+            setRequests([]);
+            toast.warn('Could not load requests, but dashboard is still available');
+          }
         }
       } catch (error) {
         console.error('Error loading dashboard:', error.message);
@@ -193,7 +210,7 @@ function Dashboard() {
   };
 
   return (
-    <Box sx={{ p: 3, backgroundColor: 'var(--background)', color: 'var(--text)'}}>
+    <Box sx={{ p: 3, backgroundColor: 'var(--background)', color: 'var(--text)' }}>
       <Typography variant="h4" gutterBottom sx={{ fontWeight: 600 }}>
         Dashboard
       </Typography>

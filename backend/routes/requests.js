@@ -17,6 +17,7 @@ router.post('/send', auth, role('advertiser'), async (req, res) => {
 
     const request = new Request({
       sender: req.user.id,
+      owner: adSpace.owner, // Set owner from AdSpace
       adSpace: adSpaceId,
       duration,
       requirements,
@@ -31,13 +32,12 @@ router.post('/send', auth, role('advertiser'), async (req, res) => {
     const transporter = nodemailer.createTransport({
       host: process.env.EMAIL_HOST,
       port: process.env.EMAIL_PORT,
-      secure: process.env.EMAIL_PORT == 465, // true if using port 465 (SSL)
+      secure: process.env.EMAIL_PORT == 465,
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
     });
-    
 
     const mailOptions = {
       from: process.env.EMAIL_USER,
@@ -52,17 +52,28 @@ router.post('/send', auth, role('advertiser'), async (req, res) => {
 
     res.status(201).json(request);
   } catch (error) {
+    console.error('Error sending request:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-router.get('/my', auth, role('owner'), async (req, res) => {
+router.get('/my', auth, async (req, res) => {
   try {
-    const adSpaces = await AdSpace.find({ owner: req.user.id });
-    const adSpaceIds = adSpaces.map(ad => ad._id);
-    const requests = await Request.find({ adSpace: { $in: adSpaceIds } }).populate('sender', 'name');
-    res.status(200).json(requests);
+    if (req.user.role === 'owner') {
+      const requests = await Request.find({ owner: req.user.id })
+        .populate('sender', 'name')
+        .populate('adSpace', 'title');
+      res.status(200).json(requests);
+    } else if (req.user.role === 'advertiser') {
+      const requests = await Request.find({ sender: req.user.id })
+        .populate('adSpace', 'title')
+        .populate('owner', 'name');
+      res.status(200).json(requests);
+    } else {
+      return res.status(403).json({ message: 'Invalid role' });
+    }
   } catch (error) {
+    console.error('Error fetching requests:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -71,7 +82,7 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
   const { status } = req.body;
   try {
     const request = await Request.findById(req.params.id).populate('adSpace');
-    if (!request || request.adSpace.owner.toString() !== req.user.id) {
+    if (!request || request.owner.toString() !== req.user.id) {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
@@ -79,7 +90,18 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
     await request.save();
 
     const adSpace = await AdSpace.findById(request.adSpace._id);
-    adSpace.status = status === 'Approved' ? 'Approved' : status === 'Rejected' ? 'Available' : 'Requested';
+    if (status === 'Approved') {
+      adSpace.status = 'Booked';
+      adSpace.booking = {
+        duration: request.duration,
+        endDate: calculateEndDate(request.duration),
+      };
+    } else if (status === 'Rejected') {
+      adSpace.status = 'Available';
+      adSpace.booking = null;
+    } else {
+      adSpace.status = 'Requested';
+    }
     await adSpace.save();
     await redisClient.del('availableAdSpaces');
 
@@ -87,12 +109,12 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
     const transporter = nodemailer.createTransport({
       host: process.env.EMAIL_HOST,
       port: process.env.EMAIL_PORT,
-      secure: process.env.EMAIL_PORT == 465, // true if using port 465 (SSL)
+      secure: process.env.EMAIL_PORT == 465,
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
-    });    
+    });
 
     const mailOptions = {
       from: process.env.EMAIL_USER,
@@ -107,8 +129,25 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
 
     res.status(200).json(request);
   } catch (error) {
+    console.error('Error updating request:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+// Helper function to calculate booking end date
+function calculateEndDate(duration) {
+  const startDate = new Date();
+  let endDate = new Date(startDate);
+
+  if (duration.type === 'days') {
+    endDate.setDate(startDate.getDate() + duration.value);
+  } else if (duration.type === 'weeks') {
+    endDate.setDate(startDate.getDate() + duration.value * 7);
+  } else if (duration.type === 'months') {
+    endDate.setMonth(startDate.getMonth() + duration.value);
+  }
+
+  return endDate;
+}
 
 module.exports = router;
