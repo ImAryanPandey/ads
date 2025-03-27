@@ -1,4 +1,3 @@
-// backend/routes/chat.js
 const express = require('express');
 const router = express.Router();
 const ChatMessage = require('../models/ChatMessage');
@@ -44,7 +43,7 @@ const findOrCreateConversation = async (user1Id, user2Id, adSpaceId = null) => {
 router.get('/messages/conversation/:conversationId', auth, async (req, res) => {
   try {
     const conversation = await Conversation.findById(req.params.conversationId);
-    if (!conversation || !conversation.participants.includes(req.user.id)) {
+    if (!conversation || !conversation.participants.includes(req.user.id)) { // Changed _id to id
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -78,8 +77,8 @@ router.get('/conversation/request/:requestId', auth, async (req, res) => {
     console.log(`Fetching request with ID: ${req.params.requestId}`);
 
     // Check if req.user is set by auth middleware
-    if (!req.user || !req.user._id) {
-      console.error('Auth middleware failed: req.user is undefined or missing _id');
+    if (!req.user || !req.user.id) { // Changed _id to id
+      console.error('Auth middleware failed: req.user is undefined or missing id');
       return res.status(401).json({ message: 'Unauthorized: No user authenticated' });
     }
 
@@ -110,7 +109,7 @@ router.get('/conversation/request/:requestId', auth, async (req, res) => {
     }
 
     // Authorization check
-    const userId = req.user._id.toString();
+    const userId = req.user.id.toString(); // Changed _id to id
     const senderId = request.sender._id.toString();
     const ownerId = request.owner._id.toString();
     if (userId !== senderId && userId !== ownerId) {
@@ -172,16 +171,16 @@ router.post('/send', auth, async (req, res) => {
 
   try {
     const conversation = await Conversation.findById(conversationId);
-    if (!conversation || !conversation.participants.includes(req.user.id)) {
+    if (!conversation || !conversation.participants.includes(req.user.id)) { // Changed _id to id
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    const recipientId = conversation.participants.find((id) => id.toString() !== req.user.id);
+    const recipientId = conversation.participants.find((id) => id.toString() !== req.user.id); // Changed _id to id
     const recipient = await User.findById(recipientId);
 
     const message = new ChatMessage({
       conversationId,
-      sender: req.user.id,
+      sender: req.user.id, // Changed _id to id
       recipient: recipientId,
       content,
       attachment,
@@ -191,7 +190,7 @@ router.post('/send', auth, async (req, res) => {
     const io = req.app.get('io');
     io.to(conversationId.toString()).emit('message', {
       ...message.toObject(),
-      sender: { _id: req.user.id, name: req.user.name },
+      sender: { _id: req.user.id, name: req.user.name }, // Changed _id to id
       recipient: { _id: recipientId, name: recipient.name },
     });
 
@@ -244,7 +243,7 @@ router.post('/upload-attachment', auth, async (req, res) => {
 router.delete('/message/:messageId', auth, async (req, res) => {
   try {
     const message = await ChatMessage.findById(req.params.messageId);
-    if (!message || message.sender.toString() !== req.user.id) {
+    if (!message || message.sender.toString() !== req.user.id) { // Changed _id to id
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -265,7 +264,7 @@ router.delete('/message/:messageId', auth, async (req, res) => {
 router.get('/messages/conversation/:conversationId/search', auth, async (req, res) => {
   try {
     const conversation = await Conversation.findById(req.params.conversationId);
-    if (!conversation || !conversation.participants.includes(req.user.id)) {
+    if (!conversation || !conversation.participants.includes(req.user.id)) { // Changed _id to id
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -298,13 +297,14 @@ router.get('/unread/:conversationId', auth, async (req, res) => {
     const messages = await ChatMessage.find({
       conversationId: conversationId,
       read: false,
-      sender: { $ne: req.user._id },
+      sender: { $ne: req.user.id }, // Changed _id to id
     });
 
     const unreadCount = messages.length;
     res.json({ unreadCount });
   } catch (error) {
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error fetching unread count for conversation:', error); // Added logging
+    res.status(500).json({ message: 'Failed to fetch unread count' });
   }
 });
 
@@ -312,10 +312,7 @@ router.get('/unread/:conversationId', auth, async (req, res) => {
 router.get('/unread', auth, async (req, res) => {
   try {
     const conversations = await Conversation.find({
-      $or: [
-        { 'request.sender': req.user._id },
-        { 'request.owner': req.user._id },
-      ],
+      participants: req.user.id, // Changed query to use participants and req.user.id
     });
 
     let totalUnread = 0;
@@ -323,21 +320,22 @@ router.get('/unread', auth, async (req, res) => {
       const unreadMessages = await ChatMessage.find({
         conversationId: conv._id,
         read: false,
-        sender: { $ne: req.user._id },
+        sender: { $ne: req.user.id }, // Changed _id to id
       });
       totalUnread += unreadMessages.length;
     }
 
     res.json({ unreadCount: totalUnread });
   } catch (error) {
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error fetching total unread count:', error); // Added logging
+    res.status(500).json({ message: 'Failed to fetch total unread count' });
   }
 });
 
 // Mark messages as read
 router.post('/mark-read/:conversationId', auth, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.id; // Already using id
     await ChatMessage.updateMany(
       { conversationId: req.params.conversationId, recipient: userId, read: false },
       { $set: { read: true } }
