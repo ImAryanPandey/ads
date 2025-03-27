@@ -1,3 +1,4 @@
+// backend/server.js
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -10,12 +11,16 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
-const { connectDB } = require('./db');
+const { connectDB, redisClient } = require('./db');
 const authRoutes = require('./routes/auth');
 const adSpaceRoutes = require('./routes/adSpaces');
 const requestRoutes = require('./routes/requests');
+const chatRoutes = require('./routes/chat');
 const User = require('./models/User');
+const AdSpace = require('./models/AdSpace');
+const Request = require('./models/Request'); // Import Request model
 const multer = require('multer');
+const cron = require('node-cron');
 
 dotenv.config();
 const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -37,10 +42,10 @@ app.use(cors({ origin: frontendUrl, credentials: true }));
 app.use(express.json());
 app.use(helmet());
 
-// Rate Limiting - Increased max to 1000 for testing
+// Rate Limiting
 app.use(rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Increased to 1000 requests per 15 minutes
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
   handler: (req, res) => {
     console.log(`Rate limit exceeded for IP: ${req.ip}`);
     res.status(429).json({ message: 'Too many requests, please try again later' });
@@ -52,7 +57,7 @@ app.use(passport.initialize());
 let gridfsBucket;
 conn.once('open', () => {
   gridfsBucket = new mongoose.mongo.GridFSBucket(conn.db, { bucketName: 'images' });
-  app.set('bucket', gridfsBucket); // Set bucket after initialization
+  app.set('bucket', gridfsBucket);
   console.log('GridFS bucket initialized');
 }).on('error', (err) => {
   console.error('GridFS connection error:', err);
@@ -66,8 +71,20 @@ app.set('upload', upload);
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
   socket.on('joinRoom', (room) => socket.join(room));
-  socket.on('sendMessage', ({ room, message, sender }) => {
-    io.to(room).emit('message', { sender, message, timestamp: new Date() });
+  socket.on('sendMessage', async ({ room, message, sender, adSpaceId, recipient }) => {
+    try {
+      const chatMessage = new ChatMessage({
+        requestId: room,
+        adSpaceId,
+        sender,
+        recipient: recipient === 'owner' ? (await AdSpace.findById(adSpaceId)).owner : (await Request.findById(room)).sender,
+        content: message,
+      });
+      await chatMessage.save();
+      io.to(room).emit('message', chatMessage);
+    } catch (error) {
+      console.error('Error saving chat message:', error);
+    }
   });
   socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
 });
@@ -104,12 +121,64 @@ passport.use(
   )
 );
 
+// Cron Job for Expired Bookings
+cron.schedule('0 0 * * *', async () => {
+  try {
+    console.log('Checking for expired bookings...');
+    const adSpaces = await AdSpace.find({ status: 'Booked' });
+    const now = new Date();
+
+    for (const adSpace of adSpaces) {
+      if (adSpace.booking && adSpace.booking.endDate && new Date(adSpace.booking.endDate) < now) {
+        adSpace.bookings = adSpace.bookings || [];
+        adSpace.bookings.push({
+          requestId: adSpace.booking.requestId,
+          startDate: adSpace.booking.startDate || new Date(adSpace.booking.endDate - adSpace.booking.duration.value * (adSpace.booking.duration.type === 'days' ? 1 : adSpace.booking.duration.type === 'weeks' ? 7 : 30) * 24 * 60 * 60 * 1000),
+          endDate: adSpace.booking.endDate,
+          duration: adSpace.booking.duration,
+          status: 'Completed',
+        });
+        adSpace.status = 'Available';
+        adSpace.booking = null;
+        await adSpace.save();
+        console.log(`AdSpace ${adSpace._id} booking expired, reverted to Available`);
+      }
+    }
+
+    await redisClient.del('availableAdSpaces');
+  } catch (error) {
+    console.error('Error checking expired bookings:', error);
+  }
+});
+
+// Cron Job for Deleting Rejected Requests
+cron.schedule('0 0 * * *', async () => {
+  try {
+    console.log('Checking for rejected requests to delete...');
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
+    const rejectedRequests = await Request.find({
+      status: 'Rejected',
+      rejectedAt: { $lte: oneMonthAgo },
+    });
+
+    for (const request of rejectedRequests) {
+      await Request.deleteOne({ _id: request._id });
+      console.log(`Deleted rejected request ${request._id}`);
+    }
+  } catch (error) {
+    console.error('Error deleting rejected requests:', error);
+  }
+});
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/adSpaces', adSpaceRoutes);
 app.use('/api/requests', requestRoutes);
+app.use('/api/chat', chatRoutes);
 
-// Serve Images - Updated endpoint without gridfs-stream
+// Serve Images
 app.get('/api/images/:id', async (req, res) => {
   try {
     const bucket = req.app.get('bucket');
@@ -132,7 +201,7 @@ app.get('/api/images/:id', async (req, res) => {
       ? 'image/png'
       : 'application/octet-stream');
     res.set('Content-Type', contentType);
-    res.status(200); // Explicitly set the status code to 200
+    res.status(200);
 
     console.log(`Starting to stream image with ID: ${fileId}, Content-Type: ${contentType}`);
     const stream = bucket.openDownloadStream(fileId);

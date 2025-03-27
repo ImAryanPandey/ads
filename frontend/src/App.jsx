@@ -17,6 +17,8 @@ import AddAdSpace from './components/AddAdSpace.jsx';
 import BrowseAdSpaces from './components/BrowseAdSpaces.jsx';
 import AdSpaceDetails from './components/AdSpaceDetails.jsx';
 import AnalyticsDashboard from './components/AnalyticsDashboard.jsx';
+import EditAdSpace from './components/EditAdSpace.jsx'; // Import EditAdSpace
+import ChatPage from './components/ChatPage.jsx'; // Import ChatPage
 import { Box, IconButton } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 
@@ -130,9 +132,11 @@ function AppContent() {
           <Route path="/onboarding" element={<PrivateRoute><Onboarding /></PrivateRoute>} />
           <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
           <Route path="/add-adSpace" element={<PrivateRoute><AddAdSpace /></PrivateRoute>} />
+          <Route path="/edit-adSpace/:id" element={<PrivateRoute><EditAdSpace /></PrivateRoute>} /> {/* Added EditAdSpace route */}
           <Route path="/browse-adSpaces" element={<PrivateRoute><BrowseAdSpaces /></PrivateRoute>} />
           <Route path="/adSpace/:id" element={<PrivateRoute><AdSpaceDetails /></PrivateRoute>} />
           <Route path="/analytics" element={<PrivateRoute><AnalyticsDashboard /></PrivateRoute>} />
+          <Route path="/chat/:requestId/:adSpaceId" element={<PrivateRoute><ChatPage /></PrivateRoute>} /> {/* Added ChatPage route */}
           <Route path="/messages" element={<PrivateRoute><div>Messages Page (To be implemented)</div></PrivateRoute>} />
           <Route path="/" element={<Navigate to="/login" />} />
         </Routes>

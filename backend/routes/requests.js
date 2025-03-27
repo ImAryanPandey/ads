@@ -1,9 +1,10 @@
+// backend/routes/requests.js
 const express = require('express');
 const router = express.Router();
 const Request = require('../models/Request');
 const AdSpace = require('../models/AdSpace');
 const User = require('../models/User');
-const { auth, role } = require('../middleware/auth');
+const { auth, role } = require('../middleware/auth'); // Fixed import
 const nodemailer = require('nodemailer');
 const { redisClient } = require('../db');
 
@@ -11,14 +12,21 @@ router.post('/send', auth, role('advertiser'), async (req, res) => {
   const { adSpaceId, duration, requirements } = req.body;
   try {
     const adSpace = await AdSpace.findById(adSpaceId);
-    if (!adSpace || adSpace.status !== 'Available') {
-      return res.status(400).json({ message: 'AdSpace not available' });
+    if (!adSpace) return res.status(404).json({ message: 'AdSpace not found' });
+
+    const existingRequest = await Request.findOne({
+      adSpace: adSpaceId,
+      sender: req.user.id,
+      status: 'Pending',
+    });
+    if (existingRequest) {
+      return res.status(400).json({ message: 'You already have a pending request for this AdSpace' });
     }
 
     const request = new Request({
-      sender: req.user.id,
-      owner: adSpace.owner, // Set owner from AdSpace
       adSpace: adSpaceId,
+      sender: req.user.id,
+      owner: adSpace.owner,
       duration,
       requirements,
     });
@@ -42,8 +50,8 @@ router.post('/send', auth, role('advertiser'), async (req, res) => {
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: owner.email,
-      subject: 'New request for your AdSpace',
-      text: `You have a new request for "${adSpace.title}".`,
+      subject: `New Request for "${adSpace.title}"`,
+      text: `You have a new request for your AdSpace "${adSpace.title}" from ${req.user.name}.`,
     };
 
     transporter.sendMail(mailOptions, (error) => {
@@ -59,19 +67,17 @@ router.post('/send', auth, role('advertiser'), async (req, res) => {
 
 router.get('/my', auth, async (req, res) => {
   try {
+    let requests;
     if (req.user.role === 'owner') {
-      const requests = await Request.find({ owner: req.user.id })
-        .populate('sender', 'name')
+      requests = await Request.find({ owner: req.user.id })
+        .populate('sender', 'name businessName')
         .populate('adSpace', 'title');
-      res.status(200).json(requests);
-    } else if (req.user.role === 'advertiser') {
-      const requests = await Request.find({ sender: req.user.id })
-        .populate('adSpace', 'title')
-        .populate('owner', 'name');
-      res.status(200).json(requests);
     } else {
-      return res.status(403).json({ message: 'Invalid role' });
+      requests = await Request.find({ sender: req.user.id })
+        .populate('owner', 'name businessName')
+        .populate('adSpace', 'title address');
     }
+    res.status(200).json(requests);
   } catch (error) {
     console.error('Error fetching requests:', error);
     res.status(500).json({ message: 'Server error' });
@@ -87,15 +93,26 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
     }
 
     request.status = status;
+    if (status === 'Rejected') {
+      request.rejectedAt = new Date(); // Set rejectedAt timestamp
+    }
     await request.save();
 
     const adSpace = await AdSpace.findById(request.adSpace._id);
     if (status === 'Approved') {
+      const endDate = calculateEndDate(request.duration);
       adSpace.status = 'Booked';
       adSpace.booking = {
+        requestId: request._id,
         duration: request.duration,
-        endDate: calculateEndDate(request.duration),
+        endDate,
       };
+      adSpace.bookings.push({
+        requestId: request._id,
+        startDate: new Date(),
+        endDate,
+        duration: request.duration,
+      });
     } else if (status === 'Rejected') {
       adSpace.status = 'Available';
       adSpace.booking = null;
@@ -134,7 +151,6 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
   }
 });
 
-// Helper function to calculate booking end date
 function calculateEndDate(duration) {
   const startDate = new Date();
   let endDate = new Date(startDate);

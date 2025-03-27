@@ -1,5 +1,5 @@
 // frontend/src/components/AdSpaceDetails.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { toast } from 'react-toastify';
@@ -23,8 +23,10 @@ function AdSpaceDetails() {
   const [adSpace, setAdSpace] = useState(null);
   const [openImageModal, setOpenImageModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
-  const [request, setRequest] = useState(null); // Track the user's request for this AdSpace
-  const [user, setUser] = useState(null); // Track the current user
+  const [request, setRequest] = useState(null);
+  const [user, setUser] = useState(null);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const intervalRef = useRef(null);
   const { register, handleSubmit, formState: { errors } } = useForm();
 
   useEffect(() => {
@@ -49,26 +51,21 @@ function AdSpaceDetails() {
   useEffect(() => {
     const fetchAdSpace = async () => {
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/adSpaces/available`, {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/adSpaces/${id}`, {
           method: 'GET',
           credentials: 'include',
         });
-        if (!response.ok) throw new Error('Failed to fetch AdSpaces');
-        const data = await response.json();
-        const adSpaceData = data.find((a) => a._id === id);
+        if (!response.ok) throw new Error('Failed to fetch AdSpace');
+        const adSpaceData = await response.json();
 
         if (adSpaceData) {
-          // Fetch images for the ad space
           const imagesWithUrls = await Promise.all(
             adSpaceData.images.map(async (image) => {
               try {
                 console.log(`Fetching image with ID: ${image.imageId}`);
                 const imageResponse = await fetch(
                   `${import.meta.env.VITE_API_URL}/images/${image.imageId}`,
-                  {
-                    method: 'GET',
-                    credentials: 'include',
-                  }
+                  { method: 'GET', credentials: 'include' }
                 );
                 if (!imageResponse.ok) throw new Error('Failed to fetch image');
                 const blob = await imageResponse.blob();
@@ -80,7 +77,6 @@ function AdSpaceDetails() {
               }
             })
           );
-
           setAdSpace({ ...adSpaceData, images: imagesWithUrls });
         } else {
           toast.error('AdSpace not found');
@@ -109,6 +105,19 @@ function AdSpaceDetails() {
     fetchAdSpace();
     if (user) fetchRequest();
   }, [id, user]);
+
+  // Set up image rotation
+  useEffect(() => {
+    if (adSpace && adSpace.images && adSpace.images.length > 1) {
+      intervalRef.current = setInterval(() => {
+        setCurrentImageIndex((prev) => (prev + 1) % adSpace.images.length);
+      }, 5000);
+    }
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [adSpace]);
 
   const onSubmit = async (data) => {
     try {
@@ -145,41 +154,59 @@ function AdSpaceDetails() {
   if (!adSpace) return <Typography sx={{ p: 3, color: 'var(--text)' }}>Loading...</Typography>;
 
   return (
-    <Box sx={{ p: 3, backgroundColor: 'var(--background)', color: 'var(--text)'}}>
+    <Box sx={{ p: 3, backgroundColor: 'var(--background)', color: 'var(--text)' }}>
       <Grid container spacing={3}>
         <Grid item xs={12} md={6}>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-            {adSpace.images?.length > 0 ? (
-              adSpace.images.map((image, index) => (
-                <CardMedia
-                  key={index}
-                  component="img"
-                  height="150"
-                  image={image.url || 'https://via.placeholder.com/150'}
-                  alt={image.caption || `AdSpace Image ${index + 1}`}
-                  onClick={() => handleImageClick(image)}
-                  onError={(e) => {
-                    console.log(`Failed to load image ${image.imageId}`);
-                    e.target.src = 'https://via.placeholder.com/150';
-                    e.target.onerror = null;
-                  }}
-                  sx={{
-                    borderRadius: '12px',
-                    boxShadow: 'var(--shadow)',
-                    cursor: 'pointer',
-                    width: '150px',
-                    objectFit: 'cover',
-                  }}
-                />
-              ))
-            ) : (
-              <CardMedia
-                component="img"
-                height="300"
-                image="https://via.placeholder.com/300"
-                alt="No Image Available"
-                sx={{ borderRadius: '12px', boxShadow: 'var(--shadow)' }}
-              />
+            <CardMedia
+              component="img"
+              height="300"
+              image={
+                adSpace.images?.length > 0 && adSpace.images[currentImageIndex]?.url
+                  ? adSpace.images[currentImageIndex].url
+                  : 'https://via.placeholder.com/300'
+              }
+              alt={adSpace.title}
+              onError={(e) => {
+                e.target.src = 'https://via.placeholder.com/300';
+                e.target.onerror = null;
+              }}
+              onClick={() => handleImageClick(adSpace.images[currentImageIndex])}
+              sx={{
+                borderRadius: '12px',
+                boxShadow: 'var(--shadow)',
+                cursor: 'pointer',
+                width: '100%',
+                objectFit: 'cover',
+              }}
+            />
+            {adSpace.images?.length > 0 && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
+                {adSpace.images.map((image, index) => (
+                  <CardMedia
+                    key={index}
+                    component="img"
+                    height="60"
+                    image={image.url || 'https://via.placeholder.com/60'}
+                    alt={image.caption || `AdSpace Image ${index + 1}`}
+                    onClick={() => {
+                      setCurrentImageIndex(index);
+                      handleImageClick(image);
+                    }}
+                    onError={(e) => {
+                      e.target.src = 'https://via.placeholder.com/60';
+                      e.target.onerror = null;
+                    }}
+                    sx={{
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      width: '60px',
+                      objectFit: 'cover',
+                      border: currentImageIndex === index ? '2px solid var(--primary-color)' : 'none',
+                    }}
+                  />
+                ))}
+              </Box>
             )}
           </Box>
         </Grid>
@@ -265,8 +292,9 @@ function AdSpaceDetails() {
                   backgroundColor: 'var(--primary-color)',
                   '&:hover': { backgroundColor: 'var(--primary-dark)' },
                 }}
+                disabled={request}
               >
-                Send Request
+                {request ? 'Request Sent' : 'Send Request'}
               </Button>
             </form>
           </Box>
@@ -295,7 +323,6 @@ function AdSpaceDetails() {
               src={selectedImage.url || 'https://via.placeholder.com/300'}
               alt={selectedImage.caption || 'AdSpace Image'}
               onError={(e) => {
-                console.log(`Failed to load modal image ${selectedImage.imageId}`);
                 e.target.src = 'https://via.placeholder.com/300';
                 e.target.onerror = null;
               }}

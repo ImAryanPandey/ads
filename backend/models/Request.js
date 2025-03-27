@@ -1,3 +1,4 @@
+// backend/models/Request.js
 const mongoose = require('mongoose');
 
 const requestSchema = new mongoose.Schema({
@@ -37,15 +38,11 @@ const requestSchema = new mongoose.Schema({
     enum: ['Pending', 'Approved', 'Rejected'], 
     default: 'Pending' 
   },
-  comments: [{ 
-    sender: { type: String, required: true }, // Could be 'advertiser' or 'owner'
-    message: { type: String, required: true, trim: true },
-    timestamp: { type: Date, default: Date.now }
-  }],
   createdAt: { 
     type: Date, 
     default: Date.now 
-  }
+  },
+  rejectedAt: { type: Date }, // Track rejection timestamp
 }, {
   timestamps: true // Adds createdAt and updatedAt automatically
 });

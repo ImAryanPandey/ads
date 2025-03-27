@@ -2,10 +2,10 @@
 const express = require('express');
 const router = express.Router();
 const ChatMessage = require('../models/ChatMessage');
-const authMiddleware = require('../middleware/auth');
+const { auth } = require('../middleware/auth'); // Destructure the auth middleware
 
 // Fetch messages for a specific request
-router.get('/messages/request/:requestId', authMiddleware, async (req, res) => {
+router.get('/messages/request/:requestId', auth, async (req, res) => {
   try {
     const messages = await ChatMessage.find({ requestId: req.params.requestId })
       .populate('sender', 'name')
@@ -19,7 +19,7 @@ router.get('/messages/request/:requestId', authMiddleware, async (req, res) => {
 });
 
 // Fetch unread message count
-router.get('/unread', authMiddleware, async (req, res) => {
+router.get('/unread', auth, async (req, res) => {
   try {
     const userId = req.user.id;
     const unreadCount = await ChatMessage.countDocuments({
@@ -33,7 +33,7 @@ router.get('/unread', authMiddleware, async (req, res) => {
 });
 
 // Mark messages as read for a request
-router.post('/mark-read/:requestId', authMiddleware, async (req, res) => {
+router.post('/mark-read/:requestId', auth, async (req, res) => {
   try {
     const userId = req.user.id;
     await ChatMessage.updateMany(

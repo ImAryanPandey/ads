@@ -1,146 +1,151 @@
-import React, { useEffect, useState } from 'react';
+// frontend/src/components/BrowseAdSpaces.jsx
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import { toast } from 'react-toastify';
-import { Box, Typography, Grid, Card, CardContent, Button, CardMedia } from '@mui/material';
-import { motion } from 'framer-motion';
-import styled from '@emotion/styled';
-import LoadingSpinner from './LoadingSpinner';
-
-const StyledCard = styled(motion.div)`
-  background: var(--container-light);
-  border-radius: 12px;
-  box-shadow: var(--shadow);
-  overflow: hidden;
-  transition: transform 0.3s ease;
-
-  &:hover {
-    transform: scale(1.05);
-  }
-
-  .dark-mode & {
-    background: var(--container-dark);
-  }
-`;
+import {
+  Box,
+  Typography,
+  Grid,
+  Card,
+  CardMedia,
+  CardContent,
+  Chip,
+} from '@mui/material';
 
 function BrowseAdSpaces() {
   const [adSpaces, setAdSpaces] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [currentImages, setCurrentImages] = useState({});
   const navigate = useNavigate();
+  const intervalRefs = useRef({});
 
   useEffect(() => {
     const fetchAdSpaces = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const response = await axios.get(`${import.meta.env.VITE_API_URL}/adSpaces/available`, {
-          withCredentials: true,
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/adSpaces/available`, {
+          method: 'GET',
+          credentials: 'include',
         });
+        if (!response.ok) throw new Error('Failed to fetch AdSpaces');
+        const fetchedAdSpaces = await response.json();
 
         const adSpacesWithImageUrls = await Promise.all(
-          response.data.map(async (adSpace) => {
-            if (adSpace.images?.length > 0) {
-              const image = adSpace.images[0];
-              try {
-                console.log(`Fetching image with ID: ${image.imageId}`);
-                const imageResponse = await axios.get(
-                  `${import.meta.env.VITE_API_URL}/images/${image.imageId}`,
-                  {
-                    withCredentials: true,
-                    responseType: 'blob',
-                    headers: {
-                      Authorization: `Bearer ${token}`,
-                    },
-                  }
-                );
-                const imageUrl = URL.createObjectURL(imageResponse.data);
-                return { ...adSpace, images: [{ ...image, url: imageUrl }].concat(adSpace.images.slice(1)) };
-              } catch (imgError) {
-                console.error(`Error fetching image ${image.imageId}:`, imgError);
-                return { ...adSpace, images: [{ ...image, url: null }].concat(adSpace.images.slice(1)) };
-              }
-            }
-            return adSpace;
+          fetchedAdSpaces.map(async (adSpace) => {
+            const imagesWithUrls = await Promise.all(
+              adSpace.images.map(async (image) => {
+                try {
+                  const imageResponse = await fetch(
+                    `${import.meta.env.VITE_API_URL}/images/${image.imageId}`,
+                    { method: 'GET', credentials: 'include' }
+                  );
+                  if (!imageResponse.ok) throw new Error('Failed to fetch image');
+                  const blob = await imageResponse.blob();
+                  const imageUrl = URL.createObjectURL(blob);
+                  return { ...image, url: imageUrl };
+                } catch (imgError) {
+                  console.error(`Error fetching image ${image.imageId}:`, imgError);
+                  return { ...image, url: null };
+                }
+              })
+            );
+            return { ...adSpace, images: imagesWithUrls };
           })
         );
-
         setAdSpaces(adSpacesWithImageUrls);
+
+        // Initialize current image index for each AdSpace
+        const initialImages = {};
+        adSpacesWithImageUrls.forEach((adSpace) => {
+          initialImages[adSpace._id] = 0;
+        });
+        setCurrentImages(initialImages);
       } catch (error) {
-        console.error('Error fetching ad spaces:', error.response?.data || error.message);
+        console.error('Error fetching ad spaces:', error);
         toast.error('Failed to load AdSpaces');
-      } finally {
-        setLoading(false);
       }
     };
     fetchAdSpaces();
   }, []);
 
-  if (loading) return <LoadingSpinner />;
+  // Set up image rotation for each AdSpace
+  useEffect(() => {
+    adSpaces.forEach((adSpace) => {
+      if (adSpace.images && adSpace.images.length > 1) {
+        intervalRefs.current[adSpace._id] = setInterval(() => {
+          setCurrentImages((prev) => ({
+            ...prev,
+            [adSpace._id]: (prev[adSpace._id] + 1) % adSpace.images.length,
+          }));
+        }, 5000);
+      }
+    });
+
+    return () => {
+      Object.values(intervalRefs.current).forEach((interval) => clearInterval(interval));
+    };
+  }, [adSpaces]);
 
   return (
-    <Box sx={{ p: { xs: 2, md: 4 }, minHeight: '100vh' }}>
-      <Typography variant="h4" gutterBottom sx={{ fontWeight: 600, color: 'var(--primary-color)' }}>
+    <Box sx={{ p: 3, backgroundColor: 'var(--background)', color: 'var(--text)' }}>
+      <Typography variant="h4" gutterBottom sx={{ fontWeight: 600 }}>
         Browse AdSpaces
       </Typography>
-      {adSpaces.length === 0 ? (
-        <Typography sx={{ color: 'var(--text-light)' }}>
-          No AdSpaces available at the moment.
-        </Typography>
-      ) : (
-        <Grid container spacing={3}>
+      {adSpaces.length > 0 ? (
+        <Grid container spacing={2}>
           {adSpaces.map((adSpace) => (
             <Grid item xs={12} sm={6} md={4} key={adSpace._id}>
-              <StyledCard
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5 }}
+              <Card
+                sx={{
+                  backgroundColor: 'var(--container-light)',
+                  boxShadow: 'var(--shadow)',
+                  borderRadius: '12px',
+                  transition: 'transform 0.2s',
+                  '&:hover': { transform: 'scale(1.02)' },
+                }}
               >
                 <CardMedia
                   component="img"
                   height="140"
                   image={
-                    adSpace.images?.[0]?.url
-                      ? adSpace.images[0].url
+                    adSpace.images?.length > 0 && adSpace.images[currentImages[adSpace._id] || 0]?.url
+                      ? adSpace.images[currentImages[adSpace._id] || 0].url
                       : 'https://via.placeholder.com/150'
                   }
                   alt={adSpace.title}
                   onError={(e) => {
-                    console.log(`Failed to load image for AdSpace ${adSpace._id}`);
                     e.target.src = 'https://via.placeholder.com/150';
                     e.target.onerror = null;
                   }}
-                  sx={{ cursor: 'pointer' }}
                   onClick={() => navigate(`/adSpace/${adSpace._id}`)}
+                  sx={{ cursor: 'pointer' }}
                 />
                 <CardContent>
-                  <Typography variant="h6" sx={{ fontWeight: 500, color: 'var(--text)' }}>
+                  <Typography variant="h6" sx={{ color: 'var(--text)' }}>
                     {adSpace.title}
                   </Typography>
-                  <Typography variant="body2" sx={{ color: 'var(--text-light)', mb: 2 }}>
-                    {adSpace.description}
+                  <Typography variant="body2" sx={{ color: 'var(--text-light)' }}>
+                    {adSpace.address}
                   </Typography>
-                  <Typography variant="body1" sx={{ fontWeight: 600, color: 'var(--text)' }}>
-                    ₹{adSpace.pricing.baseMonthlyRate}/month
+                  <Typography variant="body2" sx={{ color: 'var(--text-light)' }}>
+                    Footfall: {adSpace.footfall} ({adSpace.footfallType})
                   </Typography>
-                  <Button
-                    variant="contained"
-                    sx={{
-                      mt: 2,
-                      bgcolor: 'var(--primary-color)',
-                      '&:hover': { bgcolor: '#5B4CD6' },
-                      borderRadius: '8px',
-                    }}
-                    onClick={() => navigate(`/adSpace/${adSpace._id}`)}
-                  >
-                    View Details
-                  </Button>
+                  <Typography variant="body2" sx={{ color: 'var(--text-light)' }}>
+                    Price: ₹{adSpace.pricing.baseMonthlyRate}/month
+                  </Typography>
+                  <Chip
+                    label={adSpace.status}
+                    color="success"
+                    size="small"
+                    sx={{ mt: 1 }}
+                  />
                 </CardContent>
-              </StyledCard>
+              </Card>
             </Grid>
           ))}
         </Grid>
+      ) : (
+        <Typography sx={{ color: 'var(--text-light)' }}>
+          No available AdSpaces at the moment.
+        </Typography>
       )}
     </Box>
   );

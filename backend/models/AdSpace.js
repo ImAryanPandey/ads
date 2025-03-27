@@ -1,3 +1,4 @@
+// backend/models/AdSpace.js
 const mongoose = require('mongoose');
 
 const adSpaceSchema = new mongoose.Schema({
@@ -20,7 +21,27 @@ const adSpaceSchema = new mongoose.Schema({
     startDate: { type: Date, required: true },
     endDate: { type: Date },
   },
-  status: { type: String, enum: ['Available', 'Requested', 'Approved', 'Rejected'], default: 'Available' },
+  status: { type: String, enum: ['Available', 'Requested', 'Booked', 'Rejected'], default: 'Available' },
+  booking: {
+    requestId: { type: mongoose.Schema.Types.ObjectId, ref: 'Request' },
+    endDate: { type: Date },
+    duration: {
+      type: { type: String, enum: ['days', 'weeks', 'months'] },
+      value: { type: Number },
+    },
+  },
+  bookings: [
+    {
+      requestId: { type: mongoose.Schema.Types.ObjectId, ref: 'Request', required: true },
+      startDate: { type: Date, required: true },
+      endDate: { type: Date, required: true },
+      duration: {
+        type: { type: String, enum: ['days', 'weeks', 'months'], required: true },
+        value: { type: Number, required: true },
+      },
+      status: { type: String, enum: ['Completed', 'Cancelled'], default: 'Completed' },
+    },
+  ],
   terms: { type: String },
 });
 
