@@ -13,6 +13,7 @@ import VerifyEmail from './components/VerifyEmail.jsx';
 import VerifyOTP from './components/VerifyOTP.jsx';
 import Onboarding from './components/Onboarding.jsx';
 import Dashboard from './components/Dashboard.jsx';
+import Requests from './components/Requests';
 import AddAdSpace from './components/AddAdSpace.jsx';
 import BrowseAdSpaces from './components/BrowseAdSpaces.jsx';
 import AdSpaceDetails from './components/AdSpaceDetails.jsx';
@@ -131,12 +132,13 @@ function AppContent() {
           <Route path="/verify-otp" element={<VerifyOTP />} />
           <Route path="/onboarding" element={<PrivateRoute><Onboarding /></PrivateRoute>} />
           <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+          <Route path="/requests" element={<Requests />} />
           <Route path="/add-adSpace" element={<PrivateRoute><AddAdSpace /></PrivateRoute>} />
-          <Route path="/edit-adSpace/:id" element={<PrivateRoute><EditAdSpace /></PrivateRoute>} /> {/* Added EditAdSpace route */}
+          <Route path="/edit-adSpace/:id" element={<PrivateRoute><EditAdSpace /></PrivateRoute>} /> 
           <Route path="/browse-adSpaces" element={<PrivateRoute><BrowseAdSpaces /></PrivateRoute>} />
           <Route path="/adSpace/:id" element={<PrivateRoute><AdSpaceDetails /></PrivateRoute>} />
           <Route path="/analytics" element={<PrivateRoute><AnalyticsDashboard /></PrivateRoute>} />
-          <Route path="/chat/:requestId/:adSpaceId" element={<PrivateRoute><ChatPage /></PrivateRoute>} /> {/* Added ChatPage route */}
+          <Route path="/chat/:requestId/:adSpaceId" element={<PrivateRoute><ChatPage /></PrivateRoute>} /> 
           <Route path="/messages" element={<PrivateRoute><div>Messages Page (To be implemented)</div></PrivateRoute>} />
           <Route path="/" element={<Navigate to="/login" />} />
         </Routes>

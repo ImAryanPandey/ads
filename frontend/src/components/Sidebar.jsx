@@ -20,6 +20,7 @@ import AddBoxIcon from '@mui/icons-material/AddBox';
 import SearchIcon from '@mui/icons-material/Search';
 import MessageIcon from '@mui/icons-material/Message';
 import AnalyticsIcon from '@mui/icons-material/Analytics';
+import RequestIcon from '@mui/icons-material/Assignment'; // Added for Requests
 
 const socket = io('http://localhost:5000', { withCredentials: true });
 
@@ -31,7 +32,7 @@ function Sidebar({ role, open, onClose }) {
   useEffect(() => {
     const fetchUnreadCount = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/chat/unread', {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/chat/unread`, {
           method: 'GET',
           credentials: 'include',
         });
@@ -57,17 +58,19 @@ function Sidebar({ role, open, onClose }) {
   const menuItems = role === 'owner' ? [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
     { text: 'Add AdSpace', icon: <AddBoxIcon />, path: '/add-adSpace' },
+    { text: 'Requests', icon: <RequestIcon />, path: '/requests' }, // Added Requests
     { text: 'Messages', icon: <MessageIcon />, path: '/messages', badge: unreadCount },
     { text: 'Analytics', icon: <AnalyticsIcon />, path: '/analytics' },
   ] : [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
     { text: 'Browse AdSpaces', icon: <SearchIcon />, path: '/browse-adSpaces' },
+    { text: 'Requests', icon: <RequestIcon />, path: '/requests' }, // Added Requests
     { text: 'Messages', icon: <MessageIcon />, path: '/messages', badge: unreadCount },
   ];
 
   const drawerContent = (
     <Box
-      className="sidebar" // Added for dark mode styling
+      className="sidebar"
       sx={{
         width: 250,
         height: '100%',
@@ -82,7 +85,7 @@ function Sidebar({ role, open, onClose }) {
             color: 'var(--primary-color)',
             fontWeight: 700,
             letterSpacing: '1px',
-            fontFamily: 'Inter, sans-serif', // Changed to Inter
+            fontFamily: 'Inter, sans-serif',
           }}
         >
           AdSphere
@@ -154,7 +157,7 @@ function Sidebar({ role, open, onClose }) {
               primaryTypographyProps={{
                 color: location.pathname === item.path ? 'white' : 'var(--text)',
                 fontWeight: 500,
-                fontFamily: 'Inter, sans-serif', // Changed to Inter
+                fontFamily: 'Inter, sans-serif',
                 transition: 'color 0.3s ease',
               }}
             />

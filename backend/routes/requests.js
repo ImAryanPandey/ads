@@ -4,7 +4,7 @@ const router = express.Router();
 const Request = require('../models/Request');
 const AdSpace = require('../models/AdSpace');
 const User = require('../models/User');
-const { auth, role } = require('../middleware/auth'); // Fixed import
+const { auth, role } = require('../middleware/auth');
 const nodemailer = require('nodemailer');
 const { redisClient } = require('../db');
 
@@ -13,6 +13,11 @@ router.post('/send', auth, role('advertiser'), async (req, res) => {
   try {
     const adSpace = await AdSpace.findById(adSpaceId);
     if (!adSpace) return res.status(404).json({ message: 'AdSpace not found' });
+
+    // Prevent requests if the AdSpace is already Booked
+    if (adSpace.status === 'Booked') {
+      return res.status(400).json({ message: 'This AdSpace is already booked. Please wait until it becomes available.' });
+    }
 
     const existingRequest = await Request.findOne({
       adSpace: adSpaceId,
@@ -85,7 +90,7 @@ router.get('/my', auth, async (req, res) => {
 });
 
 router.post('/update/:id', auth, role('owner'), async (req, res) => {
-  const { status } = req.body;
+  const { status, startDate, endDate } = req.body;
   try {
     const request = await Request.findById(req.params.id).populate('adSpace');
     if (!request || request.owner.toString() !== req.user.id) {
@@ -94,23 +99,40 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
 
     request.status = status;
     if (status === 'Rejected') {
-      request.rejectedAt = new Date(); // Set rejectedAt timestamp
+      request.rejectedAt = new Date();
     }
     await request.save();
 
     const adSpace = await AdSpace.findById(request.adSpace._id);
     if (status === 'Approved') {
-      const endDate = calculateEndDate(request.duration);
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: 'Start date and end date are required for approval. Please agree on dates with the requester via chat.' });
+      }
+
+      const bookingStartDate = new Date(startDate);
+      const bookingEndDate = new Date(endDate);
+
+      if (isNaN(bookingStartDate) || isNaN(bookingEndDate)) {
+        return res.status(400).json({ message: 'Invalid date format' });
+      }
+      if (bookingEndDate <= bookingStartDate) {
+        return res.status(400).json({ message: 'End date must be after start date' });
+      }
+      if (bookingStartDate < new Date()) {
+        return res.status(400).json({ message: 'Start date cannot be in the past' });
+      }
+
       adSpace.status = 'Booked';
       adSpace.booking = {
         requestId: request._id,
         duration: request.duration,
-        endDate,
+        startDate: bookingStartDate,
+        endDate: bookingEndDate,
       };
       adSpace.bookings.push({
         requestId: request._id,
-        startDate: new Date(),
-        endDate,
+        startDate: bookingStartDate,
+        endDate: bookingEndDate,
         duration: request.duration,
       });
     } else if (status === 'Rejected') {
@@ -150,20 +172,5 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
-
-function calculateEndDate(duration) {
-  const startDate = new Date();
-  let endDate = new Date(startDate);
-
-  if (duration.type === 'days') {
-    endDate.setDate(startDate.getDate() + duration.value);
-  } else if (duration.type === 'weeks') {
-    endDate.setDate(startDate.getDate() + duration.value * 7);
-  } else if (duration.type === 'months') {
-    endDate.setMonth(startDate.getMonth() + duration.value);
-  }
-
-  return endDate;
-}
 
 module.exports = router;

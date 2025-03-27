@@ -20,9 +20,12 @@ import {
   TextField,
   Avatar,
   Divider,
+  CircularProgress,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AnalyticsDashboard from './AnalyticsDashboard.jsx';
+import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 
 function Dashboard() {
   const [role, setRole] = useState('');
@@ -32,8 +35,34 @@ function Dashboard() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [adSpaceToDelete, setAdSpaceToDelete] = useState(null);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
+  const [showDateForm, setShowDateForm] = useState(false);
+  const [selectedRequestId, setSelectedRequestId] = useState(null);
+  const [startDate, setStartDate] = useState(new Date());
+  const [endDate, setEndDate] = useState(new Date());
+  const [isApproving, setIsApproving] = useState(false);
+  const [renderError, setRenderError] = useState(null); // Added to catch rendering errors
   const navigate = useNavigate();
   const intervalRefs = useRef({});
+
+  const fetchRequests = async () => {
+    try {
+      const reqResponse = await fetch(`${import.meta.env.VITE_API_URL}/requests/my`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (!reqResponse.ok) {
+        console.error('Requests fetch failed with status:', reqResponse.status);
+        throw new Error('Failed to fetch requests');
+      }
+      const requestsData = await reqResponse.json();
+      console.log('Fetched requests data:', requestsData);
+      setRequests(requestsData || []);
+    } catch (reqError) {
+      console.error('Error fetching requests:', reqError);
+      setRequests([]);
+      toast.warn('Could not load requests, but dashboard is still available');
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -98,41 +127,9 @@ function Dashboard() {
           });
           setCurrentImages(initialImages);
 
-          try {
-            const reqResponse = await fetch(`${import.meta.env.VITE_API_URL}/requests/my`, {
-              method: 'GET',
-              credentials: 'include',
-            });
-            if (!reqResponse.ok) {
-              console.error('Requests fetch failed with status:', reqResponse.status);
-              throw new Error('Failed to fetch requests');
-            }
-            const requestsData = await reqResponse.json();
-            console.log('Requests data for owner:', requestsData);
-            setRequests(requestsData || []);
-          } catch (reqError) {
-            console.error('Error fetching owner requests:', reqError);
-            setRequests([]);
-            toast.warn('Could not load requests, but dashboard is still available');
-          }
+          await fetchRequests();
         } else if (userRole === 'advertiser') {
-          try {
-            const reqResponse = await fetch(`${import.meta.env.VITE_API_URL}/requests/my`, {
-              method: 'GET',
-              credentials: 'include',
-            });
-            if (!reqResponse.ok) {
-              console.error('Requests fetch failed with status:', reqResponse.status);
-              throw new Error('Failed to fetch requests');
-            }
-            const requestsData = await reqResponse.json();
-            console.log('Requests data for advertiser:', requestsData);
-            setRequests(requestsData || []);
-          } catch (reqError) {
-            console.error('Error fetching advertiser requests:', reqError);
-            setRequests([]);
-            toast.warn('Could not load requests, but dashboard is still available');
-          }
+          await fetchRequests();
         }
       } catch (error) {
         console.error('Error loading dashboard:', error.message);
@@ -159,17 +156,66 @@ function Dashboard() {
     };
   }, [adSpaces]);
 
-  const handleRequestUpdate = async (id, status) => {
+  const handleOpenDateForm = (requestId) => {
+    setSelectedRequestId(requestId);
+    setStartDate(new Date());
+    setEndDate(new Date());
+    setShowDateForm(true);
+  };
+
+  const handleApproveWithDates = async () => {
+    if (!selectedRequestId) return;
+
+    setIsApproving(true);
+    try {
+      console.log('Approving request with ID:', selectedRequestId);
+      console.log('Current requests state before update:', requests);
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/requests/update/${selectedRequestId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          status: 'Approved',
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+        }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to approve request');
+      }
+      const updatedRequest = await response.json();
+      console.log('Updated request from backend:', updatedRequest);
+
+      // Refetch the entire requests list to ensure consistency
+      await fetchRequests();
+      toast.success('Request approved successfully');
+    } catch (error) {
+      console.error('Error approving request:', error);
+      toast.error(error.message || 'Failed to approve request');
+    } finally {
+      setShowDateForm(false);
+      setSelectedRequestId(null);
+      setStartDate(new Date());
+      setEndDate(new Date());
+      setIsApproving(false);
+    }
+  };
+
+  const handleRejectRequest = async (id) => {
     try {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/requests/update/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status: 'Rejected' }),
       });
       if (!response.ok) throw new Error('Failed to update request');
-      setRequests(requests.map((req) => (req._id === id ? { ...req, status } : req)));
-      toast.success(`Request ${status}`);
+      await response.json();
+      toast.success('Request rejected');
+
+      // Refetch the entire requests list
+      await fetchRequests();
     } catch (error) {
       toast.error('Failed to update request');
     }
@@ -211,303 +257,413 @@ function Dashboard() {
     setDeleteConfirmationText('');
   };
 
+  // Handle rendering errors
+  if (renderError) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Typography color="error">
+          An error occurred while rendering the dashboard: {renderError.message}
+        </Typography>
+        <Button onClick={() => window.location.reload()} variant="contained" sx={{ mt: 2 }}>
+          Reload Page
+        </Button>
+      </Box>
+    );
+  }
+
   return (
-    <Box sx={{ p: 3, backgroundColor: 'var(--background)', color: 'var(--text)' }}>
-      <Typography variant="h4" gutterBottom sx={{ fontWeight: 600 }}>
-        Dashboard
-      </Typography>
-      {role === 'owner' ? (
-        <>
-          <Button
-            variant="contained"
-            onClick={() => navigate('/add-adSpace')}
-            sx={{
-              mb: 3,
-              backgroundColor: 'var(--primary-color)',
-              '&:hover': { backgroundColor: 'var(--primary-dark)' },
-              borderRadius: '8px',
-            }}
-          >
-            Add New AdSpace
-          </Button>
+    <LocalizationProvider dateAdapter={AdapterDateFns}>
+      <Box sx={{ p: 3, backgroundColor: 'var(--background)', color: 'var(--text)' }}>
+        <Typography variant="h4" gutterBottom sx={{ fontWeight: 600 }}>
+          Dashboard
+        </Typography>
+        {role === 'owner' ? (
+          <>
+            <Button
+              variant="contained"
+              onClick={() => navigate('/add-adSpace')}
+              sx={{
+                mb: 3,
+                backgroundColor: 'var(--primary-color)',
+                '&:hover': { backgroundColor: 'var(--primary-dark)' },
+                borderRadius: '8px',
+              }}
+            >
+              Add New AdSpace
+            </Button>
 
-          <Typography variant="h6" sx={{ mt: 2, color: 'var(--text)' }}>
-            My AdSpaces
-          </Typography>
-          {adSpaces.length > 0 ? (
-            <Grid container spacing={2}>
-              {adSpaces.map((adSpace) => (
-                <Grid item xs={12} sm={6} md={4} key={adSpace._id}>
-                  <Card
-                    sx={{
-                      backgroundColor: 'var(--container-light)',
-                      boxShadow: 'var(--shadow)',
-                      borderRadius: '12px',
-                      position: 'relative',
-                      transition: 'transform 0.2s',
-                      '&:hover': { transform: 'scale(1.02)' },
-                    }}
-                  >
-                    <CardMedia
-                      component="img"
-                      height="140"
-                      image={
-                        adSpace.images?.length > 0 && adSpace.images[currentImages[adSpace._id] || 0]?.url
-                          ? adSpace.images[currentImages[adSpace._id] || 0].url
-                          : 'https://via.placeholder.com/150'
-                      }
-                      alt={adSpace.title}
-                      onError={(e) => {
-                        console.log(`Failed to load image for AdSpace ${adSpace._id}`);
-                        e.target.src = 'https://via.placeholder.com/150';
-                        e.target.onerror = null;
-                      }}
-                      onClick={() => navigate(`/adSpace/${adSpace._id}`)}
-                      sx={{ cursor: 'pointer' }}
-                    />
-                    <CardContent>
-                      <Typography variant="h6" sx={{ color: 'var(--text)' }}>
-                        {adSpace.title}
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: 'var(--text-light)' }}>
-                        {adSpace.address}
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: 'var(--text-light)' }}>
-                        Footfall: {adSpace.footfall} ({adSpace.footfallType})
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: 'var(--text-light)' }}>
-                        Price: ₹{adSpace.pricing.baseMonthlyRate}/month
-                      </Typography>
-                      <Chip
-                        label={adSpace.status === 'Booked' ? 'Booked' : adSpace.status}
-                        color={
-                          adSpace.status === 'Available'
-                            ? 'success'
-                            : adSpace.status === 'Requested'
-                            ? 'warning'
-                            : adSpace.status === 'Booked'
-                            ? 'info'
-                            : 'default'
-                        }
-                        size="small"
-                        sx={{ mt: 1 }}
-                      />
-                      <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-                        <Button
-                          variant="outlined"
-                          onClick={() => navigate(`/edit-adSpace/${adSpace._id}`)}
-                          sx={{ borderRadius: '8px' }}
-                        >
-                          Edit
-                        </Button>
-                      </Box>
-                    </CardContent>
-                    <IconButton
-                      onClick={() => openDeleteDialog(adSpace)}
-                      sx={{ position: 'absolute', top: 8, right: 8, color: 'var(--secondary-color)' }}
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </Card>
-                </Grid>
-              ))}
-            </Grid>
-          ) : (
-            <Typography sx={{ color: 'var(--text-light)' }}>
-              No AdSpaces added yet. Click "Add New AdSpace" to start.
+            <Typography variant="h6" sx={{ mt: 2, color: 'var(--text)' }}>
+              My AdSpaces
             </Typography>
-          )}
-
-          <Typography variant="h6" sx={{ mt: 4, color: 'var(--text)' }}>
-            Requests
-          </Typography>
-          {requests.length > 0 ? (
-            <Grid container spacing={2}>
-              {requests.map((req) => (
-                <Grid item xs={12} key={req._id}>
-                  <Card
-                    sx={{
-                      backgroundColor: 'var(--container-light)',
-                      boxShadow: 'var(--shadow)',
-                      borderRadius: '12px',
-                      transition: 'transform 0.2s',
-                      '&:hover': { transform: 'scale(1.02)' },
-                    }}
-                  >
-                    <CardHeader
-                      avatar={
-                        <Avatar sx={{ bgcolor: 'var(--primary-color)' }}>
-                          {req.sender.name.charAt(0)}
-                        </Avatar>
-                      }
-                      title={
+            {adSpaces.length > 0 ? (
+              <Grid container spacing={2}>
+                {adSpaces.map((adSpace) => (
+                  <Grid item xs={12} sm={6} md={4} key={adSpace._id}>
+                    <Card
+                      sx={{
+                        backgroundColor: 'var(--container-light)',
+                        boxShadow: 'var(--shadow)',
+                        borderRadius: '12px',
+                        position: 'relative',
+                        transition: 'transform 0.2s',
+                        '&:hover': { transform: 'scale(1.02)' },
+                      }}
+                    >
+                      <CardMedia
+                        component="img"
+                        height="140"
+                        image={
+                          adSpace.images?.length > 0 && adSpace.images[currentImages[adSpace._id] || 0]?.url
+                            ? adSpace.images[currentImages[adSpace._id] || 0].url
+                            : 'https://via.placeholder.com/150'
+                        }
+                        alt={adSpace.title}
+                        onError={(e) => {
+                          console.log(`Failed to load image for AdSpace ${adSpace._id}`);
+                          e.target.src = 'https://via.placeholder.com/150';
+                          e.target.onerror = null;
+                        }}
+                        onClick={() => navigate(`/adSpace/${adSpace._id}`)}
+                        sx={{ cursor: 'pointer' }}
+                      />
+                      <CardContent>
                         <Typography variant="h6" sx={{ color: 'var(--text)' }}>
-                          {req.sender.name}
+                          {adSpace.title}
                         </Typography>
-                      }
-                      subheader={
                         <Typography variant="body2" sx={{ color: 'var(--text-light)' }}>
-                          Business: {req.sender.businessName || 'N/A'}
+                          {adSpace.address}
                         </Typography>
-                      }
-                    />
-                    <CardContent>
-                      <Divider sx={{ mb: 2 }} />
-                      <Typography sx={{ color: 'var(--text)', mb: 1 }}>
-                        AdSpace: {req.adSpace.title}
-                      </Typography>
-                      <Typography sx={{ color: 'var(--text)', mb: 1 }}>
-                        Duration: {req.duration.value} {req.duration.type}
-                      </Typography>
-                      <Typography sx={{ color: 'var(--text)', mb: 1 }}>
-                        Status: <Chip label={req.status === 'Approved' ? 'Booked' : req.status} color={req.status === 'Approved' ? 'success' : req.status === 'Pending' ? 'warning' : 'error'} size="small" />
-                      </Typography>
-                      {req.status === 'Pending' && (
+                        <Typography variant="body2" sx={{ color: 'var(--text-light)' }}>
+                          Footfall: {adSpace.footfall} ({adSpace.footfallType})
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: 'var(--text-light)' }}>
+                          Price: ₹{adSpace.pricing.baseMonthlyRate}/month
+                        </Typography>
+                        <Chip
+                          label={adSpace.status === 'Booked' ? 'Booked' : adSpace.status}
+                          color={
+                            adSpace.status === 'Available'
+                              ? 'success'
+                              : adSpace.status === 'Requested'
+                              ? 'warning'
+                              : adSpace.status === 'Booked'
+                              ? 'info'
+                              : 'default'
+                          }
+                          size="small"
+                          sx={{ mt: 1 }}
+                        />
                         <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
                           <Button
-                            variant="contained"
-                            color="success"
-                            onClick={() => handleRequestUpdate(req._id, 'Approved')}
+                            variant="outlined"
+                            onClick={() => navigate(`/edit-adSpace/${adSpace._id}`)}
+                            sx={{ borderRadius: '8px' }}
                           >
-                            Approve
-                          </Button>
-                          <Button
-                            variant="contained"
-                            color="error"
-                            onClick={() => handleRequestUpdate(req._id, 'Rejected')}
-                          >
-                            Reject
+                            Edit
                           </Button>
                         </Box>
-                      )}
-                      <Box sx={{ mt: 2 }}>
-                        <Button
-                          variant="outlined"
-                          onClick={() => navigate(`/chat/${req._id}/${req.adSpace._id}`)}
-                          sx={{ borderRadius: '8px' }}
-                        >
-                          Open Chat
-                        </Button>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              ))}
-            </Grid>
-          ) : (
-            <Typography sx={{ color: 'var(--text-light)' }}>
-              No requests yet.
+                      </CardContent>
+                      <IconButton
+                        onClick={() => openDeleteDialog(adSpace)}
+                        sx={{ position: 'absolute', top: 8, right: 8, color: 'var(--secondary-color)' }}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            ) : (
+              <Typography sx={{ color: 'var(--text-light)' }}>
+                No AdSpaces added yet. Click "Add New AdSpace" to start.
+              </Typography>
+            )}
+
+            <Typography variant="h6" sx={{ mt: 4, color: 'var(--text)' }}>
+              Requests
             </Typography>
-          )}
+            {requests.length > 0 ? (
+              <Grid container spacing={2}>
+                {requests.map((req) => {
+                  try {
+                    return (
+                      <Grid item xs={12} key={req._id}>
+                        <Card
+                          sx={{
+                            backgroundColor: 'var(--container-light)',
+                            boxShadow: 'var(--shadow)',
+                            borderRadius: '12px',
+                            transition: 'transform 0.2s',
+                            '&:hover': { transform: 'scale(1.02)' },
+                          }}
+                        >
+                          <CardHeader
+                            avatar={
+                              <Avatar sx={{ bgcolor: 'var(--primary-color)' }}>
+                                {req.sender?.name?.charAt(0) || '?'}
+                              </Avatar>
+                            }
+                            title={
+                              <Typography variant="h6" sx={{ color: 'var(--text)' }}>
+                                {req.sender?.name || 'Unknown Sender'}
+                              </Typography>
+                            }
+                            subheader={
+                              <Typography variant="body2" sx={{ color: 'var(--text-light)' }}>
+                                Business: {req.sender?.businessName || 'N/A'}
+                              </Typography>
+                            }
+                          />
+                          <CardContent>
+                            <Divider sx={{ mb: 2 }} />
+                            <Typography sx={{ color: 'var(--text)', mb: 1 }}>
+                              AdSpace: {req.adSpace?.title || 'Unknown AdSpace'}
+                            </Typography>
+                            <Typography sx={{ color: 'var(--text)', mb: 1 }}>
+                              Duration: {req.duration?.value || 'N/A'} {req.duration?.type || 'N/A'}
+                            </Typography>
+                            <Typography sx={{ color: 'var(--text)', mb: 1 }}>
+                              Status: <Chip label={req.status === 'Approved' ? 'Booked' : req.status || 'Unknown'} color={req.status === 'Approved' ? 'success' : req.status === 'Pending' ? 'warning' : 'error'} size="small" />
+                            </Typography>
+                            {req.status === 'Pending' && (
+                              <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+                                <Button
+                                  variant="contained"
+                                  color="success"
+                                  onClick={() => handleOpenDateForm(req._id)}
+                                  disabled={isApproving}
+                                >
+                                  Approve
+                                </Button>
+                                <Button
+                                  variant="contained"
+                                  color="error"
+                                  onClick={() => handleRejectRequest(req._id)}
+                                  disabled={isApproving}
+                                >
+                                  Reject
+                                </Button>
+                              </Box>
+                            )}
+                            <Box sx={{ mt: 2 }}>
+                              <Button
+                                variant="outlined"
+                                onClick={() => navigate(`/chat/${req._id}/${req.adSpace?._id || ''}`)}
+                                sx={{ borderRadius: '8px' }}
+                                disabled={isApproving || !req.adSpace?._id}
+                              >
+                                Open Chat
+                              </Button>
+                            </Box>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    );
+                  } catch (error) {
+                    console.error('Error rendering request:', req, error);
+                    setRenderError(error);
+                    return null;
+                  }
+                })}
+              </Grid>
+            ) : (
+              <Typography sx={{ color: 'var(--text-light)' }}>
+                No requests yet.
+              </Typography>
+            )}
 
-          <AnalyticsDashboard />
-        </>
-      ) : role === 'advertiser' ? (
-        <>
-          <Button
-            variant="contained"
-            onClick={() => navigate('/browse-adSpaces')}
-            sx={{
-              mb: 3,
-              backgroundColor: 'var(--primary-color)',
-              '&:hover': { backgroundColor: 'var(--primary-dark)' },
-              borderRadius: '8px',
-            }}
-          >
-            Browse AdSpaces
-          </Button>
+            <AnalyticsDashboard />
+          </>
+        ) : role === 'advertiser' ? (
+          <>
+            <Button
+              variant="contained"
+              onClick={() => navigate('/browse-adSpaces')}
+              sx={{
+                mb: 3,
+                backgroundColor: 'var(--primary-color)',
+                '&:hover': { backgroundColor: 'var(--primary-dark)' },
+                borderRadius: '8px',
+              }}
+            >
+              Browse AdSpaces
+            </Button>
 
-          <Typography variant="h6" sx={{ mt: 2, color: 'var(--text)' }}>
-            My Sent Requests
-          </Typography>
-          {requests.length > 0 ? (
-            <Grid container spacing={2}>
-              {requests.map((req) => (
-                <Grid item xs={12} key={req._id}>
-                  <Card
-                    sx={{
-                      backgroundColor: 'var(--container-light)',
-                      boxShadow: 'var(--shadow)',
-                      borderRadius: '12px',
-                      transition: 'transform 0.2s',
-                      '&:hover': { transform: 'scale(1.02)' },
+            <Typography variant="h6" sx={{ mt: 2, color: 'var(--text)' }}>
+              My Sent Requests
+            </Typography>
+            {requests.length > 0 ? (
+              <Grid container spacing={2}>
+                {requests.map((req) => {
+                  try {
+                    return (
+                      <Grid item xs={12} key={req._id}>
+                        <Card
+                          sx={{
+                            backgroundColor: 'var(--container-light)',
+                            boxShadow: 'var(--shadow)',
+                            borderRadius: '12px',
+                            transition: 'transform 0.2s',
+                            '&:hover': { transform: 'scale(1.02)' },
+                          }}
+                        >
+                          <CardHeader
+                            avatar={
+                              <Avatar sx={{ bgcolor: 'var(--primary-color)' }}>
+                                {req.owner?.name?.charAt(0) || '?'}
+                              </Avatar>
+                            }
+                            title={
+                              <Typography variant="h6" sx={{ color: 'var(--text)' }}>
+                                AdSpace: {req.adSpace?.title || 'Unknown AdSpace'}
+                              </Typography>
+                            }
+                            subheader={
+                              <Typography variant="body2" sx={{ color: 'var(--text-light)' }}>
+                                Owner: {req.owner?.name || 'Unknown Owner'} (Location: {req.adSpace?.address || 'N/A'})
+                              </Typography>
+                            }
+                          />
+                          <CardContent>
+                            <Divider sx={{ mb: 2 }} />
+                            <Typography sx={{ color: 'var(--text)', mb: 1 }}>
+                              Duration: {req.duration?.value || 'N/A'} {req.duration?.type || 'N/A'}
+                            </Typography>
+                            <Typography sx={{ color: 'var(--text)', mb: 1 }}>
+                              Status: <Chip label={req.status === 'Approved' ? 'Booked' : req.status || 'Unknown'} color={req.status === 'Approved' ? 'success' : req.status === 'Pending' ? 'warning' : 'error'} size="small" />
+                            </Typography>
+                            <Box sx={{ mt: 2 }}>
+                              <Button
+                                variant="outlined"
+                                onClick={() => navigate(`/chat/${req._id}/${req.adSpace?._id || ''}`)}
+                                sx={{ borderRadius: '8px' }}
+                                disabled={!req.adSpace?._id}
+                              >
+                                Open Chat
+                              </Button>
+                            </Box>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    );
+                  } catch (error) {
+                    console.error('Error rendering request:', req, error);
+                    setRenderError(error);
+                    return null;
+                  }
+                })}
+              </Grid>
+            ) : (
+              <Typography sx={{ color: 'var(--text-light)' }}>
+                No requests sent yet. Browse AdSpaces to get started.
+              </Typography>
+            )}
+          </>
+        ) : (
+          <Typography>Loading...</Typography>
+        )}
+
+        <Dialog open={deleteDialogOpen} onClose={handleCloseDeleteDialog}>
+          <DialogTitle>Confirm AdSpace Deletion</DialogTitle>
+          <DialogContent>
+            <Typography>
+              Deleting an AdSpace is permanent. To confirm, please type the title of the AdSpace:{' '}
+              <strong>{adSpaceToDelete?.title}</strong>
+            </Typography>
+            <TextField
+              fullWidth
+              margin="normal"
+              label="AdSpace Title"
+              value={deleteConfirmationText}
+              onChange={(e) => setDeleteConfirmationText(e.target.value)}
+              sx={{ backgroundColor: 'var(--container-light)', borderRadius: '8px' }}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseDeleteDialog} color="primary">
+              Cancel
+            </Button>
+            <Button onClick={handleDeleteAdSpace} color="error" variant="contained">
+              Delete
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog open={showDateForm} onClose={() => setShowDateForm(false)}>
+          <DialogTitle>Confirm Booking Dates</DialogTitle>
+          <DialogContent>
+            {isApproving ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
+                <CircularProgress />
+              </Box>
+            ) : (
+              <>
+                <Typography sx={{ mb: 2 }}>
+                  Please enter the dates you agreed on with the requester via chat.
+                </Typography>
+                <Box sx={{ mb: 2 }}>
+                  <DatePicker
+                    label="Start Date"
+                    value={startDate}
+                    onChange={(newValue) => setStartDate(newValue)}
+                    minDate={new Date()}
+                    slotProps={{
+                      textField: {
+                        fullWidth: true,
+                        InputLabelProps: { style: { color: 'var(--text-light)' } },
+                        sx: {
+                          input: {
+                            color: (theme) =>
+                              theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)',
+                          },
+                          backgroundColor: 'var(--container-light)',
+                          borderRadius: '8px',
+                        },
+                      },
                     }}
-                  >
-                    <CardHeader
-                      avatar={
-                        <Avatar sx={{ bgcolor: 'var(--primary-color)' }}>
-                          {req.owner.name.charAt(0)}
-                        </Avatar>
-                      }
-                      title={
-                        <Typography variant="h6" sx={{ color: 'var(--text)' }}>
-                          AdSpace: {req.adSpace.title}
-                        </Typography>
-                      }
-                      subheader={
-                        <Typography variant="body2" sx={{ color: 'var(--text-light)' }}>
-                          Owner: {req.owner.name} (Location: {req.adSpace.address})
-                        </Typography>
-                      }
-                    />
-                    <CardContent>
-                      <Divider sx={{ mb: 2 }} />
-                      <Typography sx={{ color: 'var(--text)', mb: 1 }}>
-                        Duration: {req.duration.value} {req.duration.type}
-                      </Typography>
-                      <Typography sx={{ color: 'var(--text)', mb: 1 }}>
-                        Status: <Chip label={req.status === 'Approved' ? 'Booked' : req.status} color={req.status === 'Approved' ? 'success' : req.status === 'Pending' ? 'warning' : 'error'} size="small" />
-                      </Typography>
-                      <Box sx={{ mt: 2 }}>
-                        <Button
-                          variant="outlined"
-                          onClick={() => navigate(`/chat/${req._id}/${req.adSpace._id}`)}
-                          sx={{ borderRadius: '8px' }}
-                        >
-                          Open Chat
-                        </Button>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              ))}
-            </Grid>
-          ) : (
-            <Typography sx={{ color: 'var(--text-light)' }}>
-              No requests sent yet. Browse AdSpaces to get started.
-            </Typography>
-          )}
-        </>
-      ) : (
-        <Typography>Loading...</Typography>
-      )}
-
-      <Dialog open={deleteDialogOpen} onClose={handleCloseDeleteDialog}>
-        <DialogTitle>Confirm AdSpace Deletion</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Deleting an AdSpace is permanent. To confirm, please type the title of the AdSpace:{' '}
-            <strong>{adSpaceToDelete?.title}</strong>
-          </Typography>
-          <TextField
-            fullWidth
-            margin="normal"
-            label="AdSpace Title"
-            value={deleteConfirmationText}
-            onChange={(e) => setDeleteConfirmationText(e.target.value)}
-            sx={{ backgroundColor: 'var(--container-light)', borderRadius: '8px' }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseDeleteDialog} color="primary">
-            Cancel
-          </Button>
-          <Button onClick={handleDeleteAdSpace} color="error" variant="contained">
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
+                  />
+                </Box>
+                <Box>
+                  <DatePicker
+                    label="End Date"
+                    value={endDate}
+                    onChange={(newValue) => setEndDate(newValue)}
+                    minDate={startDate || new Date()}
+                    slotProps={{
+                      textField: {
+                        fullWidth: true,
+                        InputLabelProps: { style: { color: 'var(--text-light)' } },
+                        sx: {
+                          input: {
+                            color: (theme) =>
+                              theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)',
+                          },
+                          backgroundColor: 'var(--container-light)',
+                          borderRadius: '8px',
+                        },
+                      },
+                    }}
+                  />
+                </Box>
+              </>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setShowDateForm(false)} color="primary" disabled={isApproving}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleApproveWithDates}
+              color="success"
+              variant="contained"
+              disabled={isApproving}
+            >
+              Confirm Approval
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </Box>
+    </LocalizationProvider>
   );
 }
 
