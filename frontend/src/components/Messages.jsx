@@ -1,4 +1,3 @@
-// frontend/src/components/Messages.jsx
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -21,9 +20,8 @@ function Messages() {
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
-  // Fetch userId from cookies
   const [userId, setUserId] = useState(null);
+
   useEffect(() => {
     const fetchUserId = async () => {
       try {
@@ -31,12 +29,9 @@ function Messages() {
           method: 'GET',
           credentials: 'include',
         });
-        if (response.ok) {
-          const data = await response.json();
-          setUserId(data._id);
-        } else {
-          throw new Error('Failed to fetch user ID');
-        }
+        if (!response.ok) throw new Error('Failed to fetch user ID');
+        const data = await response.json();
+        setUserId(data._id);
       } catch (err) {
         toast.error('Failed to authenticate user');
         setError(err.message);
@@ -50,57 +45,48 @@ function Messages() {
 
     const fetchConversations = async () => {
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/requests/my`, {
+        const convResponse = await fetch(`${import.meta.env.VITE_API_URL}/chat/conversations/my`, {
           method: 'GET',
           credentials: 'include',
         });
-        if (!response.ok) {
-          throw new Error('Failed to fetch conversations');
-        }
-        const requests = await response.json();
-        const convs = await Promise.all(
-          requests.map(async (req) => {
-            const convResponse = await fetch(
-              `${import.meta.env.VITE_API_URL}/chat/conversation/request/${req._id}`,
-              {
-                method: 'GET',
-                credentials: 'include',
-              }
-            );
-            if (!convResponse.ok) return null;
-            const convData = await convResponse.json();
+        if (!convResponse.ok) throw new Error('Failed to fetch conversations');
+        const conversationsData = await convResponse.json();
 
+        const convs = await Promise.all(
+          conversationsData.map(async (conv) => {
             const msgResponse = await fetch(
-              `${import.meta.env.VITE_API_URL}/chat/messages/conversation/${convData.conversationId}?page=1`,
+              `${import.meta.env.VITE_API_URL}/chat/messages/conversation/${conv._id}?page=1`,
               {
                 method: 'GET',
                 credentials: 'include',
               }
             );
+            if (!msgResponse.ok) return null;
             const msgData = await msgResponse.json();
             const lastMessage = msgData.messages[msgData.messages.length - 1];
 
-            // Fetch unread count for this specific conversation
             const unreadResponse = await fetch(
-              `${import.meta.env.VITE_API_URL}/chat/unread/${convData.conversationId}`,
+              `${import.meta.env.VITE_API_URL}/chat/unread/${conv._id}`,
               {
                 method: 'GET',
                 credentials: 'include',
               }
             );
             const unreadData = await unreadResponse.json();
-            const unreadCount = unreadData.unreadCount || 0;
+
+            const otherParticipant = conv.participants.find(p => p._id.toString() !== userId);
+            const adSpace = conv.adSpaces[0]; // First adSpace for simplicity
 
             return {
-              conversationId: convData.conversationId,
-              otherParticipant: userId === req.sender._id ? req.owner : req.sender,
-              adSpace: req.adSpace,
+              conversationId: conv._id,
+              otherParticipant,
+              adSpace,
               lastMessage,
-              unreadCount,
+              unreadCount: unreadData.unreadCount || 0,
             };
           })
         );
-        setConversations(convs.filter((conv) => conv && conv.lastMessage));
+        setConversations(convs.filter(conv => conv && conv.lastMessage));
       } catch (err) {
         setError(err.message);
         toast.error(err.message);
@@ -163,7 +149,7 @@ function Messages() {
                     primary={
                       <Badge badgeContent={conv.unreadCount} color="error">
                         <Typography sx={{ fontWeight: conv.unreadCount > 0 ? 600 : 400 }}>
-                          {conv.otherParticipant.name} - {conv.adSpace.title}
+                          {conv.otherParticipant.name} - {conv.adSpace?.title || 'No AdSpace'}
                         </Typography>
                       </Badge>
                     }

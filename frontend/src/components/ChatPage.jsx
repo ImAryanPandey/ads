@@ -1,4 +1,3 @@
-// frontend/src/components/ChatPage.jsx
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -13,66 +12,64 @@ function ChatPage() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    console.log('Fetching conversation with ID:', conversationId);
     const fetchConversation = async () => {
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/requests/my`, {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10-second timeout
+
+        // Fetch messages
+        const messagesResponse = await fetch(`${import.meta.env.VITE_API_URL}/chat/messages/conversation/${conversationId}`, {
           method: 'GET',
           credentials: 'include',
+          signal: controller.signal,
         });
-        if (!response.ok) {
-          throw new Error('Failed to fetch requests');
+
+        if (!messagesResponse.ok) {
+          const errorText = await messagesResponse.text();
+          throw new Error(`Failed to fetch messages: ${errorText}`);
         }
-        const requests = await response.json();
-        const request = requests.find((req) => req._id === conversationId);
-        if (!request) {
-          // If conversationId is not a requestId, try fetching the conversation directly
-          const convResponse = await fetch(`${import.meta.env.VITE_API_URL}/chat/conversation/request/${conversationId}`, {
-            method: 'GET',
-            credentials: 'include',
-          });
-          if (!convResponse.ok) {
-            throw new Error('Failed to fetch conversation');
-          }
-          const convData = await convResponse.json();
-          setConversation({ ...convData, request });
-        } else {
-          const convResponse = await fetch(`${import.meta.env.VITE_API_URL}/chat/conversation/request/${conversationId}`, {
-            method: 'GET',
-            credentials: 'include',
-          });
-          if (!convResponse.ok) {
-            throw new Error('Failed to fetch conversation');
-          }
-          const convData = await convResponse.json();
-          setConversation({ ...convData, request });
+        const messagesData = await messagesResponse.json();
+
+        // Fetch the request associated with the conversation
+        const requestResponse = await fetch(`${import.meta.env.VITE_API_URL}/chat/conversation/${conversationId}/request`, {
+          method: 'GET',
+          credentials: 'include',
+          signal: controller.signal,
+        });
+
+        if (!requestResponse.ok) {
+          const errorText = await requestResponse.text();
+          throw new Error(`Failed to fetch request: ${errorText}`);
         }
+        const requestData = await requestResponse.json();
+
+        setConversation({
+          conversationId,
+          messages: messagesData.messages,
+          totalPages: messagesData.totalPages,
+          currentPage: messagesData.currentPage,
+          request: requestData,
+        });
       } catch (err) {
-        setError(err.message);
-        toast.error(err.message);
+        console.error('Error fetching conversation:', err);
+        if (err.name === 'AbortError') {
+          setError('Request timed out. Please try again.');
+          toast.error('Request timed out. Please try again.');
+        } else {
+          setError(err.message);
+          toast.error(err.message);
+        }
         navigate('/dashboard');
       } finally {
         setLoading(false);
       }
     };
-
     fetchConversation();
   }, [conversationId, navigate]);
 
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  if (error) {
-    return (
-      <Typography color="error" sx={{ textAlign: 'center', mt: 4 }}>
-        {error}
-      </Typography>
-    );
-  }
+  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}><CircularProgress /></Box>;
+  if (error) return <Typography color="error" sx={{ textAlign: 'center', mt: 4 }}>{error}</Typography>;
 
   return (
     <Box sx={{ p: 3, mt: 8, backgroundColor: 'var(--background)', minHeight: 'calc(100vh - 64px)' }}>

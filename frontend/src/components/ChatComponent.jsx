@@ -1,4 +1,3 @@
-// frontend/src/components/ChatComponent.jsx
 import React, { useEffect, useState, useRef } from 'react';
 import io from 'socket.io-client';
 import {
@@ -25,14 +24,13 @@ import { toast } from 'react-toastify';
 const socket = io('http://localhost:5000', { withCredentials: true });
 
 function ChatComponent({ conversation }) {
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(conversation?.messages || []);
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [totalPages, setTotalPages] = useState(conversation?.totalPages || 1);
   const [typingUser, setTypingUser] = useState(null);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -61,44 +59,24 @@ function ChatComponent({ conversation }) {
   }, []);
 
   // Calculate otherParticipant after userId is fetched
-  const otherParticipant = userId && conversation.request
-    ? userId === conversation.request.sender._id
+  const otherParticipant = userId && conversation?.request
+    ? userId === conversation.request.sender?._id
       ? conversation.request.owner
       : conversation.request.sender
     : null;
 
+  // Update messages when conversation prop changes
   useEffect(() => {
-    if (!userId) return;
+    if (conversation?.messages) {
+      setMessages(conversation.messages);
+      setTotalPages(conversation.totalPages || 1);
+      setPage(conversation.currentPage || 1);
+    }
+  }, [conversation]);
 
-    const fetchMessages = async () => {
-      try {
-        const response = await fetch(
-          `${import.meta.env.VITE_API_URL}/chat/messages/conversation/${conversation.conversationId}?page=${page}`,
-          {
-            method: 'GET',
-            credentials: 'include',
-          }
-        );
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.message || 'Failed to fetch messages');
-        }
-        const data = await response.json();
-        setMessages(data.messages);
-        setTotalPages(data.totalPages);
-        await fetch(`${import.meta.env.VITE_API_URL}/chat/mark-read/${conversation.conversationId}`, {
-          method: 'POST',
-          credentials: 'include',
-        });
-      } catch (err) {
-        setError(err.message);
-        toast.error(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchMessages();
+  // Socket setup
+  useEffect(() => {
+    if (!userId || !conversation?.conversationId) return;
 
     socket.emit('joinRoom', conversation.conversationId);
 
@@ -124,14 +102,28 @@ function ChatComponent({ conversation }) {
       }
     });
 
+    // Mark messages as read
+    const markMessagesAsRead = async () => {
+      try {
+        await fetch(`${import.meta.env.VITE_API_URL}/chat/mark-read/${conversation.conversationId}`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+      } catch (err) {
+        console.error('Error marking messages as read:', err);
+      }
+    };
+    markMessagesAsRead();
+
     return () => {
       socket.off('message');
       socket.off('messageDeleted');
       socket.off('typing');
       socket.off('stopTyping');
     };
-  }, [conversation.conversationId, page, userId, otherParticipant]);
+  }, [conversation?.conversationId, userId, otherParticipant]);
 
+  // Scroll to the bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -153,6 +145,7 @@ function ChatComponent({ conversation }) {
       const data = await response.json();
       setMessages((prev) => [...data.messages, ...prev]);
       setPage(page + 1);
+      setTotalPages(data.totalPages);
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -282,8 +275,8 @@ function ChatComponent({ conversation }) {
     }, 3000);
   };
 
-  if (loading || !userId) {
-    return <Typography>Loading messages...</Typography>;
+  if (!userId) {
+    return <Typography>Loading user...</Typography>;
   }
 
   if (error) {
@@ -320,8 +313,8 @@ function ChatComponent({ conversation }) {
           </Typography>
           {conversation.request && (
             <Typography variant="body2" sx={{ color: 'var(--text-light)', display: 'flex', alignItems: 'center', gap: 1 }}>
-              AdSpace: {conversation.request.adSpace.title}
-              {conversation.request.adSpace.images?.length > 0 && (
+              AdSpace: {conversation.request.adSpace?.title || 'Unknown AdSpace'}
+              {conversation.request.adSpace?.images?.length > 0 && (
                 <CardMedia
                   component="img"
                   image={`${import.meta.env.VITE_API_URL}/images/${conversation.request.adSpace.images[0].imageId}`}
