@@ -23,7 +23,7 @@ function AnalyticsDashboard() {
           { name: 'Total', value: overview.total },
           { name: 'Available', value: overview.available },
           { name: 'Requested', value: overview.requested },
-          { name: 'Approved', value: overview.approved },
+          { name: 'Booked', value: overview.booked }, 
         ]);
         setRevenueData(revenue);
         setFootfallData(footfall);

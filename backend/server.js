@@ -18,15 +18,23 @@ const requestRoutes = require('./routes/requests');
 const chatRoutes = require('./routes/chat');
 const User = require('./models/User');
 const AdSpace = require('./models/AdSpace');
-const Request = require('./models/Request'); // Import Request model
+const Request = require('./models/Request');
+const ChatMessage = require('./models/ChatMessage'); // Import ChatMessage model
 const multer = require('multer');
 const cron = require('node-cron');
+const nodemailer = require('nodemailer');
 
 dotenv.config();
 const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: frontendUrl } });
+const io = new Server(server, {
+  cors: {
+    origin: frontendUrl,
+    methods: ['GET', 'POST'], // Specify allowed methods
+    credentials: true, // Allow credentials
+  },
+});
 
 // MongoDB Connection
 connectDB();
@@ -43,14 +51,16 @@ app.use(express.json());
 app.use(helmet());
 
 // Rate Limiting
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 1000,
-  handler: (req, res) => {
-    console.log(`Rate limit exceeded for IP: ${req.ip}`);
-    res.status(429).json({ message: 'Too many requests, please try again later' });
-  }
-}));
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 1000,
+    handler: (req, res) => {
+      console.log(`Rate limit exceeded for IP: ${req.ip}`);
+      res.status(429).json({ message: 'Too many requests, please try again later' });
+    },
+  })
+);
 app.use(passport.initialize());
 
 // GridFS Bucket Initialization
@@ -66,26 +76,70 @@ conn.once('open', () => {
 
 // Make upload available to routes
 app.set('upload', upload);
+app.set('io', io); // Make io available to routes
 
-// Socket.IO
+// Setup nodemailer transporter
+const transporter = nodemailer.createTransport({
+  host: process.env.EMAIL_HOST,
+  port: process.env.EMAIL_PORT,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+// Socket.io
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
-  socket.on('joinRoom', (room) => socket.join(room));
-  socket.on('sendMessage', async ({ room, message, sender, adSpaceId, recipient }) => {
+
+  socket.on('joinRoom', (conversationId) => {
+    socket.join(conversationId);
+    console.log(`User joined room: ${conversationId}`);
+  });
+
+  socket.on('sendMessage', async ({ room, message, sender, recipient }) => {
     try {
+      const senderUser = await User.findById(sender);
+      const recipientUser = await User.findById(recipient);
+
       const chatMessage = new ChatMessage({
-        requestId: room,
-        adSpaceId,
+        conversationId: room,
         sender,
-        recipient: recipient === 'owner' ? (await AdSpace.findById(adSpaceId)).owner : (await Request.findById(room)).sender,
+        recipient,
         content: message,
       });
       await chatMessage.save();
-      io.to(room).emit('message', chatMessage);
+
+      io.to(room).emit('message', {
+        ...chatMessage.toObject(),
+        sender: { _id: sender, name: senderUser.name },
+        recipient: { _id: recipient, name: recipientUser.name },
+      });
+
+      const mailOptions = {
+        from: process.env.FROM_EMAIL,
+        to: recipientUser.email,
+        subject: `New Message from ${senderUser.name}`,
+        text: `You have a new message:\n\n${message}\n\nLog in to reply: http://localhost:5173/chat/${room}`,
+      };
+      await transporter.sendMail(mailOptions);
     } catch (error) {
       console.error('Error saving chat message:', error);
     }
   });
+
+  socket.on('typing', ({ conversationId, userId }) => {
+    socket.to(conversationId).emit('typing', userId);
+  });
+
+  socket.on('stopTyping', ({ conversationId, userId }) => {
+    socket.to(conversationId).emit('stopTyping', userId);
+  });
+
+  socket.on('deleteMessage', (conversationId, messageId) => {
+    io.to(conversationId).emit('messageDeleted', messageId);
+  });
+
   socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
 });
 
@@ -133,7 +187,21 @@ cron.schedule('0 0 * * *', async () => {
         adSpace.bookings = adSpace.bookings || [];
         adSpace.bookings.push({
           requestId: adSpace.booking.requestId,
-          startDate: adSpace.booking.startDate || new Date(adSpace.booking.endDate - adSpace.booking.duration.value * (adSpace.booking.duration.type === 'days' ? 1 : adSpace.booking.duration.type === 'weeks' ? 7 : 30) * 24 * 60 * 60 * 1000),
+          startDate:
+            adSpace.booking.startDate ||
+            new Date(
+              adSpace.booking.endDate -
+                adSpace.booking.duration.value *
+                  (adSpace.booking.duration.type === 'days'
+                    ? 1
+                    : adSpace.booking.duration.type === 'weeks'
+                    ? 7
+                    : 30) *
+                  24 *
+                  60 *
+                  60 *
+                  1000
+            ),
           endDate: adSpace.booking.endDate,
           duration: adSpace.booking.duration,
           status: 'Completed',
@@ -195,11 +263,13 @@ app.get('/api/images/:id', async (req, res) => {
     }
 
     const file = files[0];
-    const contentType = file.contentType || (file.filename.endsWith('.jpg') || file.filename.endsWith('.jpeg')
-      ? 'image/jpeg'
-      : file.filename.endsWith('.png')
-      ? 'image/png'
-      : 'application/octet-stream');
+    const contentType =
+      file.contentType ||
+      (file.filename.endsWith('.jpg') || file.filename.endsWith('.jpeg')
+        ? 'image/jpeg'
+        : file.filename.endsWith('.png')
+        ? 'image/png'
+        : 'application/octet-stream');
     res.set('Content-Type', contentType);
     res.status(200);
 

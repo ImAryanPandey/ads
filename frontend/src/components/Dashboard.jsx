@@ -2,6 +2,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
+import io from 'socket.io-client';
 import {
   Button,
   Box,
@@ -27,6 +28,9 @@ import AnalyticsDashboard from './AnalyticsDashboard.jsx';
 import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 
+const reliablePlaceholder = 'https://placehold.co/150x150';
+const tinyGrayImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==';
+
 function Dashboard() {
   const [role, setRole] = useState('');
   const [adSpaces, setAdSpaces] = useState([]);
@@ -43,6 +47,7 @@ function Dashboard() {
   const [renderError, setRenderError] = useState(null);
   const navigate = useNavigate();
   const intervalRefs = useRef({});
+  const socketRef = useRef(null);
 
   const fetchRequests = async () => {
     try {
@@ -65,6 +70,26 @@ function Dashboard() {
   };
 
   useEffect(() => {
+    socketRef.current = io('http://localhost:5000', {
+      withCredentials: true,
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 5,
+    });
+
+    socketRef.current.on('connect', () => {
+      console.log('Socket.IO connected successfully', 'Transport:', socketRef.current.io.engine.transport.name);
+    });
+
+    socketRef.current.on('connect_error', (err) => {
+      console.error('Socket.IO connection error:', err.message);
+      toast.error('Failed to connect to real-time updates');
+      socketRef.current.disconnect();
+    });
+
+    socketRef.current.on('disconnect', () => {
+      console.log('Socket.IO disconnected');
+    });
+
     const fetchData = async () => {
       try {
         const userResponse = await fetch(`${import.meta.env.VITE_API_URL}/auth/me`, {
@@ -137,6 +162,12 @@ function Dashboard() {
       }
     };
     fetchData();
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
   }, [navigate]);
 
   useEffect(() => {
@@ -214,6 +245,22 @@ function Dashboard() {
       toast.success('Request rejected');
     } catch (error) {
       toast.error('Failed to update request');
+    }
+  };
+
+  const handleOpenChat = async (requestId) => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/chat/conversation/request/${requestId}`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch conversation');
+      }
+      const data = await response.json();
+      navigate(`/chat/${data.conversationId}`);
+    } catch (error) {
+      toast.error('Failed to open chat');
     }
   };
 
@@ -310,16 +357,22 @@ function Dashboard() {
                         image={
                           adSpace.images?.length > 0 && adSpace.images[currentImages[adSpace._id] || 0]?.url
                             ? adSpace.images[currentImages[adSpace._id] || 0].url
-                            : 'https://via.placeholder.com/150'
+                            : reliablePlaceholder
                         }
                         alt={adSpace.title}
                         onError={(e) => {
-                          console.log(`Failed to load image for AdSpace ${adSpace._id}`);
-                          e.target.src = 'https://via.placeholder.com/150';
-                          e.target.onerror = null;
+                          const target = e.target;
+                          if (target.src !== reliablePlaceholder && target.src !== tinyGrayImage) {
+                            console.log(`Failed to load image for AdSpace ${adSpace._id}, trying reliable placeholder`);
+                            target.src = reliablePlaceholder;
+                          } else if (target.src === reliablePlaceholder) {
+                            console.log(`Reliable placeholder failed, falling back to tiny gray image`);
+                            target.src = tinyGrayImage;
+                            target.onerror = null;
+                          }
                         }}
                         onClick={() => navigate(`/adSpace/${adSpace._id}`)}
-                        sx={{ cursor: 'pointer' }}
+                        sx={{ cursor: 'pointer' }} // Reverted to original sx props
                       />
                       <CardContent>
                         <Typography variant="h6" sx={{ color: 'var(--text)' }}>
@@ -417,9 +470,21 @@ function Dashboard() {
                             <Typography sx={{ color: 'var(--text)', mb: 1 }}>
                               Duration: {req.duration?.value || 'N/A'} {req.duration?.type || 'N/A'}
                             </Typography>
-                            <Typography sx={{ color: 'var(--text)', mb: 1 }}>
-                              Status: <Chip label={req.status === 'Approved' ? 'Booked' : req.status || 'Unknown'} color={req.status === 'Approved' ? 'success' : req.status === 'Pending' ? 'warning' : 'error'} size="small" />
-                            </Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                              <Typography sx={{ color: 'var(--text)' }}>Status:</Typography>
+                              <Chip
+                                label={req.status === 'Approved' ? 'Booked' : req.status || 'Unknown'}
+                                color={
+                                  req.status === 'Approved'
+                                    ? 'success'
+                                    : req.status === 'Pending'
+                                    ? 'warning'
+                                    : 'error'
+                                }
+                                size="small"
+                                sx={{ ml: 1 }}
+                              />
+                            </Box>
                             {req.status === 'Pending' && (
                               <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
                                 <Button
@@ -443,9 +508,9 @@ function Dashboard() {
                             <Box sx={{ mt: 2 }}>
                               <Button
                                 variant="outlined"
-                                onClick={() => navigate(`/chat/${req._id}/${req.adSpace?._id || ''}`)}
+                                onClick={() => handleOpenChat(req._id)}
                                 sx={{ borderRadius: '8px' }}
-                                disabled={isApproving || !req.adSpace?._id}
+                                disabled={isApproving}
                               >
                                 Open Chat
                               </Button>
@@ -515,7 +580,8 @@ function Dashboard() {
                             }
                             subheader={
                               <Typography variant="body2" sx={{ color: 'var(--text-light)' }}>
-                                Owner: {req.owner?.name || 'Unknown Owner'} (Location: {req.adSpace?.address || 'N/A'})
+                                Owner: {req.owner?.name || 'Unknown Owner'} (Location:{' '}
+                                {req.adSpace?.address || 'N/A'})
                               </Typography>
                             }
                           />
@@ -524,15 +590,26 @@ function Dashboard() {
                             <Typography sx={{ color: 'var(--text)', mb: 1 }}>
                               Duration: {req.duration?.value || 'N/A'} {req.duration?.type || 'N/A'}
                             </Typography>
-                            <Typography sx={{ color: 'var(--text)', mb: 1 }}>
-                              Status: <Chip label={req.status === 'Approved' ? 'Booked' : req.status || 'Unknown'} color={req.status === 'Approved' ? 'success' : req.status === 'Pending' ? 'warning' : 'error'} size="small" />
-                            </Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                              <Typography sx={{ color: 'var(--text)' }}>Status:</Typography>
+                              <Chip
+                                label={req.status === 'Approved' ? 'Booked' : req.status || 'Unknown'}
+                                color={
+                                  req.status === 'Approved'
+                                    ? 'success'
+                                    : req.status === 'Pending'
+                                    ? 'warning'
+                                    : 'error'
+                                }
+                                size="small"
+                                sx={{ ml: 1 }}
+                              />
+                            </Box>
                             <Box sx={{ mt: 2 }}>
                               <Button
                                 variant="outlined"
-                                onClick={() => navigate(`/chat/${req._id}/${req.adSpace?._id || ''}`)}
+                                onClick={() => handleOpenChat(req._id)}
                                 sx={{ borderRadius: '8px' }}
-                                disabled={!req.adSpace?._id}
                               >
                                 Open Chat
                               </Button>
