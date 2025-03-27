@@ -40,7 +40,7 @@ function Dashboard() {
   const [startDate, setStartDate] = useState(new Date());
   const [endDate, setEndDate] = useState(new Date());
   const [isApproving, setIsApproving] = useState(false);
-  const [renderError, setRenderError] = useState(null); // Added to catch rendering errors
+  const [renderError, setRenderError] = useState(null);
   const navigate = useNavigate();
   const intervalRefs = useRef({});
 
@@ -186,9 +186,7 @@ function Dashboard() {
       }
       const updatedRequest = await response.json();
       console.log('Updated request from backend:', updatedRequest);
-
-      // Refetch the entire requests list to ensure consistency
-      await fetchRequests();
+      setRequests((prev) => prev.map((req) => (req._id === selectedRequestId ? updatedRequest : req)));
       toast.success('Request approved successfully');
     } catch (error) {
       console.error('Error approving request:', error);
@@ -211,11 +209,9 @@ function Dashboard() {
         body: JSON.stringify({ status: 'Rejected' }),
       });
       if (!response.ok) throw new Error('Failed to update request');
-      await response.json();
+      const updatedRequest = await response.json();
+      setRequests((prev) => prev.map((req) => (req._id === id ? updatedRequest : req)));
       toast.success('Request rejected');
-
-      // Refetch the entire requests list
-      await fetchRequests();
     } catch (error) {
       toast.error('Failed to update request');
     }
@@ -257,7 +253,6 @@ function Dashboard() {
     setDeleteConfirmationText('');
   };
 
-  // Handle rendering errors
   if (renderError) {
     return (
       <Box sx={{ p: 3 }}>

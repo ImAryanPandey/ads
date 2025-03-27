@@ -14,7 +14,6 @@ router.post('/send', auth, role('advertiser'), async (req, res) => {
     const adSpace = await AdSpace.findById(adSpaceId);
     if (!adSpace) return res.status(404).json({ message: 'AdSpace not found' });
 
-    // Prevent requests if the AdSpace is already Booked
     if (adSpace.status === 'Booked') {
       return res.status(400).json({ message: 'This AdSpace is already booked. Please wait until it becomes available.' });
     }
@@ -63,7 +62,12 @@ router.post('/send', auth, role('advertiser'), async (req, res) => {
       if (error) console.error('Error sending email:', error);
     });
 
-    res.status(201).json(request);
+    // Populate the response
+    const populatedRequest = await Request.findById(request._id)
+      .populate('sender', 'name businessName')
+      .populate('owner', 'name businessName')
+      .populate('adSpace', 'title address');
+    res.status(201).json(populatedRequest);
   } catch (error) {
     console.error('Error sending request:', error);
     res.status(500).json({ message: 'Server error' });
@@ -76,7 +80,7 @@ router.get('/my', auth, async (req, res) => {
     if (req.user.role === 'owner') {
       requests = await Request.find({ owner: req.user.id })
         .populate('sender', 'name businessName')
-        .populate('adSpace', 'title');
+        .populate('adSpace', 'title address'); // Added address for more detail
     } else {
       requests = await Request.find({ sender: req.user.id })
         .populate('owner', 'name businessName')
@@ -100,6 +104,10 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
     request.status = status;
     if (status === 'Rejected') {
       request.rejectedAt = new Date();
+    }
+    if (status === 'Approved') {
+      request.startDate = startDate;
+      request.endDate = endDate;
     }
     await request.save();
 
@@ -166,7 +174,12 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
       if (error) console.error('Error sending email:', error);
     });
 
-    res.status(200).json(request);
+    // Populate the response
+    const populatedRequest = await Request.findById(request._id)
+      .populate('sender', 'name businessName')
+      .populate('owner', 'name businessName')
+      .populate('adSpace', 'title address');
+    res.status(200).json(populatedRequest);
   } catch (error) {
     console.error('Error updating request:', error);
     res.status(500).json({ message: 'Server error' });

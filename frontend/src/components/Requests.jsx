@@ -1,7 +1,7 @@
 // frontend/src/components/Requests.jsx
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Button,
   Dialog,
@@ -11,9 +11,17 @@ import {
   Typography,
   Box,
   CircularProgress,
+  Grid,
+  Card,
+  CardHeader,
+  CardContent,
+  Avatar,
+  Divider,
+  Chip,
 } from '@mui/material';
 import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { format } from 'date-fns'; // For formatting dates
 
 const Requests = () => {
   const [requests, setRequests] = useState([]);
@@ -22,8 +30,9 @@ const Requests = () => {
   const [selectedRequestId, setSelectedRequestId] = useState(null);
   const [startDate, setStartDate] = useState(new Date());
   const [endDate, setEndDate] = useState(new Date());
-  const [isApproving, setIsApproving] = useState(false); // Added for loading state
-  const [renderError, setRenderError] = useState(null); // Added to catch rendering errors
+  const [isApproving, setIsApproving] = useState(false);
+  const [renderError, setRenderError] = useState(null);
+  const navigate = useNavigate();
 
   const fetchRequests = async () => {
     try {
@@ -73,9 +82,9 @@ const Requests = () => {
         const errorData = await response.json();
         throw new Error(errorData.message || 'Failed to approve request');
       }
-      await response.json();
+      const updatedRequest = await response.json();
+      setRequests((prev) => prev.map((req) => (req._id === selectedRequestId ? updatedRequest : req)));
       toast.success('Request approved successfully');
-      await fetchRequests(); // Refetch to ensure state consistency
     } catch (error) {
       console.error('Error approving request:', error);
       toast.error(error.message || 'Failed to approve request');
@@ -97,16 +106,22 @@ const Requests = () => {
         body: JSON.stringify({ status: 'Rejected' }),
       });
       if (!response.ok) throw new Error('Failed to update request');
-      await response.json();
+      const updatedRequest = await response.json();
+      setRequests((prev) => prev.map((req) => (req._id === requestId ? updatedRequest : req)));
       toast.success('Request rejected successfully');
-      await fetchRequests(); // Refetch to ensure state consistency
     } catch (error) {
       console.error('Error updating request:', error);
       toast.error('Failed to update request');
     }
   };
 
-  if (loading) return <div>Loading...</div>;
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   if (renderError) {
     return (
@@ -123,47 +138,110 @@ const Requests = () => {
 
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>
-      <div>
-        <h2>My Requests</h2>
+      <Box sx={{ p: 3, backgroundColor: 'var(--background)', color: 'var(--text)' }}>
+        <Typography variant="h4" gutterBottom sx={{ fontWeight: 600 }}>
+          My Requests
+        </Typography>
         {requests.length === 0 ? (
-          <p>No requests found.</p>
+          <Typography sx={{ color: 'var(--text-light)' }}>No requests found.</Typography>
         ) : (
-          <ul>
+          <Grid container spacing={2}>
             {requests.map((request) => {
               try {
                 return (
-                  <li key={request._id}>
-                    <p>AdSpace: {request.adSpace?.title || 'Unknown AdSpace'}</p>
-                    <p>Sender: {request.sender?.name || 'Unknown Sender'}</p>
-                    <p>Status: {request.status || 'Unknown'}</p>
-                    {request.status === 'Pending' && (
-                      <div>
-                        <Link to={`/chat/${request._id}/${request.adSpace?._id || ''}`}>
-                          <Button variant="outlined" disabled={isApproving || !request.adSpace?._id}>
-                            Chat with Requester
+                  <Grid item xs={12} key={request._id}>
+                    <Card
+                      sx={{
+                        backgroundColor: 'var(--container-light)',
+                        boxShadow: 'var(--shadow)',
+                        borderRadius: '12px',
+                        transition: 'transform 0.2s',
+                        '&:hover': { transform: 'scale(1.02)' },
+                      }}
+                    >
+                      <CardHeader
+                        avatar={
+                          <Avatar sx={{ bgcolor: 'var(--primary-color)' }}>
+                            {request.sender?.name?.charAt(0) || '?'}
+                          </Avatar>
+                        }
+                        title={
+                          <Typography variant="h6" sx={{ color: 'var(--text)' }}>
+                            {request.sender?.name || 'Unknown Sender'}
+                          </Typography>
+                        }
+                        subheader={
+                          <Typography variant="body2" sx={{ color: 'var(--text-light)' }}>
+                            Business: {request.sender?.businessName || 'N/A'}
+                          </Typography>
+                        }
+                      />
+                      <CardContent>
+                        <Divider sx={{ mb: 2 }} />
+                        <Typography sx={{ color: 'var(--text)', mb: 1 }}>
+                          AdSpace: {request.adSpace?.title || 'Unknown AdSpace'}
+                        </Typography>
+                        <Typography sx={{ color: 'var(--text)', mb: 1 }}>
+                          Duration: {request.duration?.value || 'N/A'} {request.duration?.type || 'N/A'}
+                        </Typography>
+                        <Typography sx={{ color: 'var(--text)', mb: 1 }}>
+                          Requirements: {request.requirements || 'None specified'}
+                        </Typography>
+                        <Typography sx={{ color: 'var(--text)', mb: 1 }}>
+                          Created At: {request.createdAt ? format(new Date(request.createdAt), 'PPP') : 'N/A'}
+                        </Typography>
+                        {request.rejectedAt && (
+                          <Typography sx={{ color: 'var(--text)', mb: 1 }}>
+                            Rejected At: {format(new Date(request.rejectedAt), 'PPP')}
+                          </Typography>
+                        )}
+                        <Typography sx={{ color: 'var(--text)', mb: 1 }}>
+                          Status:{' '}
+                          <Chip
+                            label={request.status === 'Approved' ? 'Booked' : request.status || 'Unknown'}
+                            color={
+                              request.status === 'Approved'
+                                ? 'success'
+                                : request.status === 'Pending'
+                                ? 'warning'
+                                : 'error'
+                            }
+                            size="small"
+                          />
+                        </Typography>
+                        <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+                          <Button
+                            variant="outlined"
+                            onClick={() => navigate(`/chat/${request._id}/${request.adSpace?._id || ''}`)}
+                            sx={{ borderRadius: '8px' }}
+                            disabled={isApproving || !request.adSpace?._id}
+                          >
+                            Open Chat
                           </Button>
-                        </Link>
-                        <Button
-                          variant="contained"
-                          color="success"
-                          onClick={() => handleOpenDateForm(request._id)}
-                          sx={{ ml: 1 }}
-                          disabled={isApproving}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          variant="contained"
-                          color="error"
-                          onClick={() => handleRejectRequest(request._id)}
-                          sx={{ ml: 1 }}
-                          disabled={isApproving}
-                        >
-                          Reject
-                        </Button>
-                      </div>
-                    )}
-                  </li>
+                          {request.status === 'Pending' && (
+                            <>
+                              <Button
+                                variant="contained"
+                                color="success"
+                                onClick={() => handleOpenDateForm(request._id)}
+                                disabled={isApproving}
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                variant="contained"
+                                color="error"
+                                onClick={() => handleRejectRequest(request._id)}
+                                disabled={isApproving}
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          )}
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Grid>
                 );
               } catch (error) {
                 console.error('Error rendering request:', request, error);
@@ -171,7 +249,7 @@ const Requests = () => {
                 return null;
               }
             })}
-          </ul>
+          </Grid>
         )}
 
         <Dialog open={showDateForm} onClose={() => setShowDateForm(false)}>
@@ -247,7 +325,7 @@ const Requests = () => {
             </Button>
           </DialogActions>
         </Dialog>
-      </div>
+      </Box>
     </LocalizationProvider>
   );
 };
