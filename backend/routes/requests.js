@@ -3,11 +3,10 @@ const router = express.Router();
 const Request = require('../models/Request');
 const AdSpace = require('../models/AdSpace');
 const User = require('../models/User');
-const Conversation = require('../models/Conversation');
-const ChatMessage = require('../models/ChatMessage');
 const { auth, role } = require('../middleware/auth');
 const nodemailer = require('nodemailer');
 const { redisClient } = require('../db');
+const { ObjectId } = require('mongoose').Types;
 
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST,
@@ -19,98 +18,90 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Send a request and start a conversation
+// Send a request
 router.post('/send', auth, role('advertiser'), async (req, res) => {
   const { adSpaceId, duration, requirements } = req.body;
+  console.log('Received request:', { adSpaceId, duration, requirements, userId: req.user.id }); // Debug
   try {
+    // Validate and fetch adSpace
+    console.log('Fetching AdSpace with id:', adSpaceId); // Debug
     const adSpace = await AdSpace.findById(adSpaceId);
     if (!adSpace) return res.status(404).json({ message: 'AdSpace not found' });
+    console.log('AdSpace found:', adSpace._id, adSpace.title); // Debug
     if (adSpace.status === 'Booked') {
       return res.status(400).json({ message: 'This AdSpace is already booked.' });
     }
 
+    // Check for existing pending request
+    console.log('Checking for existing request with sender:', req.user.id); // Debug
     const existingRequest = await Request.findOne({
-      adSpace: adSpaceId,
-      sender: req.user.id,
+      adSpace: adSpace._id,
+      sender: new ObjectId(req.user.id),
       status: 'Pending',
     });
     if (existingRequest) {
       return res.status(400).json({ message: 'You already have a pending request for this AdSpace' });
     }
 
+    // Create new request
+    console.log('Creating new request with sender:', req.user.id, 'and owner:', adSpace.owner); // Debug
     const request = new Request({
-      adSpace: adSpaceId,
-      sender: req.user.id,
+      adSpace: adSpace._id,
+      sender: new ObjectId(req.user.id),
       owner: adSpace.owner,
       duration,
       requirements,
     });
     await request.save();
+    console.log('Request saved with id:', request._id); // Debug
 
+    // Update adSpace status
     adSpace.status = 'Requested';
     await adSpace.save();
+    console.log('AdSpace status updated to Requested'); // Debug
     await redisClient.del('availableAdSpaces');
 
-    const conversation = await findOrCreateConversation(req.user.id, adSpace.owner, adSpaceId);
-    const systemMessage = new ChatMessage({
-      conversationId: conversation._id,
-      sender: req.user.id,
-      recipient: adSpace.owner,
-      type: 'system',
-      content: `New request sent for AdSpace: ${adSpace.title}`,
-    });
-    await systemMessage.save();
-
-    const io = req.app.get('io');
-    io.to(conversation._id.toString()).emit('message', {
-      ...systemMessage.toObject(),
-      sender: { _id: req.user.id, name: req.user.name },
-      recipient: { _id: adSpace.owner },
-    });
-
+    // Send email notification
     const owner = await User.findById(adSpace.owner);
+    if (!owner) throw new Error('Owner not found');
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: owner.email,
       subject: `New Request for "${adSpace.title}"`,
-      text: `You have a new request for "${adSpace.title}" from ${req.user.name}. Chat: ${process.env.FRONTEND_URL}/chat/${conversation._id}`,
+      text: `You have a new request for "${adSpace.title}" from ${req.user.name}.`,
     };
     await transporter.sendMail(mailOptions);
+    console.log('Email sent to:', owner.email); // Debug
 
+    // Return response
     const populatedRequest = await Request.findById(request._id)
       .populate('sender', 'name businessName')
       .populate('owner', 'name businessName')
       .populate('adSpace', 'title address');
-    res.status(201).json({ ...populatedRequest.toObject(), conversationId: conversation._id });
+    res.status(201).json({ ...populatedRequest.toObject() });
   } catch (error) {
-    console.error('Error sending request:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error sending request:', error.message, error.stack); // Detailed error logging
+    res.status(500).json({ message: 'Server error', details: error.message });
   }
 });
 
 // Get user's requests (fixed for dashboard)
 router.get('/my', auth, async (req, res) => {
+  console.log('Fetching requests for user:', req.user.id); // Debug
   try {
     let requests;
     if (req.user.role === 'owner') {
-      requests = await Request.find({ owner: req.user.id })
+      requests = await Request.find({ owner: new ObjectId(req.user.id) })
         .populate('sender', 'name businessName')
         .populate('adSpace', 'title address');
     } else {
-      requests = await Request.find({ sender: req.user.id })
+      requests = await Request.find({ sender: new ObjectId(req.user.id) })
         .populate('owner', 'name businessName')
         .populate('adSpace', 'title address');
     }
+    console.log('Found requests:', requests.length); // Debug
 
-    const requestsWithConversations = await Promise.all(requests.map(async (request) => {
-      const participants = [request.sender._id.toString(), request.owner._id.toString()].sort();
-      const conversation = await Conversation.findOne({
-        participants: { $all: participants, $size: 2 },
-      });
-      return { ...request.toObject(), conversationId: conversation?._id || null };
-    }));
-
-    res.status(200).json(requestsWithConversations);
+    res.status(200).json(requests);
   } catch (error) {
     console.error('Error fetching requests:', error);
     res.status(500).json({ message: 'Server error' });
@@ -120,11 +111,13 @@ router.get('/my', auth, async (req, res) => {
 // Update request status
 router.post('/update/:id', auth, role('owner'), async (req, res) => {
   const { status, startDate, endDate } = req.body;
+  console.log('Updating request with id:', req.params.id, 'to status:', status); // Debug
   try {
-    const request = await Request.findById(req.params.id).populate('adSpace');
+    const request = await Request.findById(new ObjectId(req.params.id)).populate('adSpace');
     if (!request || request.owner.toString() !== req.user.id) {
       return res.status(403).json({ message: 'Not authorized' });
     }
+    console.log('Request found:', request._id); // Debug
 
     request.status = status;
     if (status === 'Rejected') request.rejectedAt = new Date();
@@ -133,6 +126,7 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
       request.endDate = endDate;
     }
     await request.save();
+    console.log('Request status updated'); // Debug
 
     const adSpace = await AdSpace.findById(request.adSpace._id);
     if (status === 'Approved') {
@@ -163,47 +157,27 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
       adSpace.status = 'Requested';
     }
     await adSpace.save();
+    console.log('AdSpace status updated:', adSpace.status); // Debug
     await redisClient.del('availableAdSpaces');
-
-    const participants = [request.sender.toString(), request.owner.toString()].sort();
-    const conversation = await Conversation.findOne({
-      participants: { $all: participants, $size: 2 },
-    });
-    if (conversation) {
-      const message = new ChatMessage({
-        conversationId: conversation._id,
-        sender: req.user.id,
-        recipient: request.sender,
-        type: 'system',
-        content: `Request for AdSpace: ${adSpace.title} has been ${status.toLowerCase()}`,
-      });
-      await message.save();
-
-      const io = req.app.get('io');
-      io.to(conversation._id.toString()).emit('message', {
-        ...message.toObject(),
-        sender: { _id: req.user.id, name: req.user.name },
-        recipient: { _id: request.sender },
-      });
-    }
 
     const sender = await User.findById(request.sender);
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: sender.email,
       subject: `Request ${status} for "${adSpace.title}"`,
-      text: `Your request for "${adSpace.title}" has been ${status.toLowerCase()}. Chat: ${process.env.FRONTEND_URL}/chat/${conversation?._id || ''}`,
+      text: `Your request for "${adSpace.title}" has been ${status.toLowerCase()}.`,
     };
     await transporter.sendMail(mailOptions);
+    console.log('Email sent for update'); // Debug
 
     const populatedRequest = await Request.findById(request._id)
       .populate('sender', 'name businessName')
       .populate('owner', 'name businessName')
       .populate('adSpace', 'title address');
-    res.status(200).json({ ...populatedRequest.toObject(), conversationId: conversation?._id || null });
+    res.status(200).json({ ...populatedRequest.toObject() });
   } catch (error) {
-    console.error('Error updating request:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error updating request:', error.message, error.stack); // Detailed error logging
+    res.status(500).json({ message: 'Server error', details: error.message });
   }
 });
 

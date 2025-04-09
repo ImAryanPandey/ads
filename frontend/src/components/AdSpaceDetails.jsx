@@ -1,4 +1,3 @@
-// frontend/src/components/AdSpaceDetails.jsx
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
@@ -27,7 +26,18 @@ function AdSpaceDetails() {
   const [user, setUser] = useState(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const intervalRef = useRef(null);
-  const { register, handleSubmit, formState: { errors } } = useForm();
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    reset,
+    watch,
+  } = useForm({
+    defaultValues: { durationType: 'months', durationValue: '', requirements: '' },
+    mode: 'onSubmit',
+  });
+  const [durationType, setDurationType] = useState('months'); // Controlled state for durationType
+  const durationTypeValue = watch('durationType', 'months'); // Sync with form
 
   useEffect(() => {
     // Fetch current user
@@ -49,7 +59,10 @@ function AdSpaceDetails() {
   }, []);
 
   useEffect(() => {
+    let isMounted = true; // Flag to prevent state updates on unmounted component
+
     const fetchAdSpace = async () => {
+      if (!isMounted) return; // Prevent updates if unmounted
       try {
         const response = await fetch(`${import.meta.env.VITE_API_URL}/adSpaces/${id}`, {
           method: 'GET',
@@ -58,7 +71,7 @@ function AdSpaceDetails() {
         if (!response.ok) throw new Error('Failed to fetch AdSpace');
         const adSpaceData = await response.json();
 
-        if (adSpaceData) {
+        if (adSpaceData && isMounted) {
           const imagesWithUrls = await Promise.all(
             adSpaceData.images.map(async (image) => {
               try {
@@ -78,16 +91,17 @@ function AdSpaceDetails() {
             })
           );
           setAdSpace({ ...adSpaceData, images: imagesWithUrls });
-        } else {
+        } else if (isMounted) {
           toast.error('AdSpace not found');
         }
       } catch (error) {
         console.error('Error fetching ad space:', error);
-        toast.error('Failed to load AdSpace');
+        if (isMounted) toast.error('Failed to load AdSpace');
       }
     };
 
     const fetchRequest = async () => {
+      if (!user || !isMounted) return; // Only fetch if user is loaded and component is mounted
       try {
         const response = await fetch(`${import.meta.env.VITE_API_URL}/requests/my`, {
           method: 'GET',
@@ -95,8 +109,10 @@ function AdSpaceDetails() {
         });
         if (!response.ok) throw new Error('Failed to fetch requests');
         const data = await response.json();
-        const existingRequest = data.find((req) => req.adSpace._id === id);
-        setRequest(existingRequest || null);
+        if (isMounted) {
+          const existingRequest = data.find((req) => req.adSpace._id === id);
+          setRequest(existingRequest || null);
+        }
       } catch (error) {
         console.error('Error fetching requests:', error);
       }
@@ -104,7 +120,11 @@ function AdSpaceDetails() {
 
     fetchAdSpace();
     if (user) fetchRequest();
-  }, [id, user]);
+
+    return () => {
+      isMounted = false; // Cleanup on unmount
+    };
+  }, [id, user]); // Dependency on id and user to prevent unnecessary re-runs
 
   // Set up image rotation
   useEffect(() => {
@@ -120,21 +140,30 @@ function AdSpaceDetails() {
   }, [adSpace]);
 
   const onSubmit = async (data) => {
+    // Custom validation to prevent invalid submissions (requirements optional)
+    const durationValue = parseInt(data.durationValue, 10);
+    if (!data.durationType || isNaN(durationValue) || durationValue <= 0) {
+      toast.error('Please select a duration type and enter a valid positive duration value');
+      return;
+    }
+
     try {
+      console.log('Submitting with adSpaceId:', id, 'data:', data); // Debug
       const response = await fetch(`${import.meta.env.VITE_API_URL}/requests/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           adSpaceId: id,
-          duration: { type: data.durationType, value: data.durationValue },
-          requirements: data.requirements,
+          duration: { type: data.durationType, value: durationValue },
+          requirements: data.requirements || '', // Allow empty requirements
         }),
       });
       if (!response.ok) throw new Error('Failed to send request');
       const newRequest = await response.json();
       setRequest(newRequest);
       toast.success('Request sent successfully!');
+      reset(); // Clear form after success
     } catch (error) {
       console.error('Error sending request:', error);
       toast.error('Failed to send request');
@@ -247,6 +276,8 @@ function AdSpaceDetails() {
                 label="Duration Type"
                 fullWidth
                 margin="normal"
+                value={durationTypeValue} // Controlled value
+                onChange={(e) => setDurationType(e.target.value)} // Update state
                 {...register('durationType', { required: 'Duration type is required' })}
                 error={!!errors.durationType}
                 helperText={errors.durationType?.message}
@@ -264,7 +295,11 @@ function AdSpaceDetails() {
                 type="number"
                 fullWidth
                 margin="normal"
-                {...register('durationValue', { required: 'Duration value is required' })}
+                {...register('durationValue', {
+                  required: 'Duration value is required',
+                  min: { value: 1, message: 'Duration must be at least 1' },
+                  validate: (value) => !isNaN(parseInt(value, 10)) || 'Please enter a valid number',
+                })}
                 error={!!errors.durationValue}
                 helperText={errors.durationValue?.message}
                 sx={{
@@ -278,7 +313,7 @@ function AdSpaceDetails() {
                 margin="normal"
                 multiline
                 rows={2}
-                {...register('requirements')}
+                {...register('requirements')} // Optional field
                 sx={{
                   backgroundColor: 'var(--container-light)',
                   borderRadius: '8px',
@@ -292,7 +327,7 @@ function AdSpaceDetails() {
                   backgroundColor: 'var(--primary-color)',
                   '&:hover': { backgroundColor: 'var(--primary-dark)' },
                 }}
-                disabled={request}
+                disabled={!!request} // Fix: Convert request to boolean
               >
                 {request ? 'Request Sent' : 'Send Request'}
               </Button>
