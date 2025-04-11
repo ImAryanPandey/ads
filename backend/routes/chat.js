@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Conversation = require('../models/Conversation');
 const Chat = require('../models/Chat');
-const Request = require('../models/Request'); // Added for adSpace reference
+const Request = require('../models/Request');
 const { auth } = require('../middleware/auth');
 const mongoose = require('mongoose');
 
@@ -52,7 +52,7 @@ router.post('/open', auth, async (req, res) => {
     console.log('Saved system message:', systemMessage.content);
     req.app.get('io').to(conversation._id.toString()).emit('message', systemMessage);
 
-    res.status(200).json({ conversationId: conversation._id });
+    res.status(200).json({ conversationId: conversation._id.toString() });
   } catch (error) {
     console.error('Error opening chat:', error.message);
     res.status(500).json({ message: 'Server error', details: error.message });
@@ -89,8 +89,16 @@ router.get('/conversations/:conversationId', auth, async (req, res) => {
     }
 
     const conversation = await Conversation.findById(conversationId).lean();
-    if (!conversation || !conversation.participants.includes(req.user.id)) {
-      return res.status(403).json({ message: 'Unauthorized or conversation not found' });
+    if (!conversation) {
+      return res.status(404).json({ message: 'Conversation not found' });
+    }
+    // Convert participant IDs to strings for comparison
+    const userIdStr = req.user.id.toString();
+    const participantIds = conversation.participants.map(p => p.toString());
+    console.log('User ID:', userIdStr, 'Participants:', participantIds);
+
+    if (!participantIds.includes(userIdStr)) {
+      return res.status(403).json({ message: 'Unauthorized: User not a participant' });
     }
 
     const chat = await Chat.findOne({ conversationId }).lean();
@@ -100,7 +108,7 @@ router.get('/conversations/:conversationId', auth, async (req, res) => {
     }
 
     const messages = chat.messages
-      .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)) // Ascending order
+      .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
       .slice(parseInt(skip), parseInt(skip) + parseInt(limit));
 
     const hasMore = chat.messages.length > parseInt(skip) + parseInt(limit);
