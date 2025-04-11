@@ -6,6 +6,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import CloseIcon from '@mui/icons-material/Close';
 import SendIcon from '@mui/icons-material/Send';
+import pako from 'pako'; // Ensure pako is installed
 
 function ChatComponent({ conversationId, userId, onClose, title }) {
   const [messages, setMessages] = useState([]);
@@ -13,10 +14,52 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
   const [loading, setLoading] = useState(false);
   const [image, setImage] = useState(null);
   const [hasMore, setHasMore] = useState(true);
+  const [participantNames, setParticipantNames] = useState({}); // Map of userId to name
   const messagesEndRef = useRef(null);
   const messagesListRef = useRef(null);
   const socketRef = useRef(null);
   const prevConversationIdRef = useRef(null);
+
+  // Improved decompression function with conditional check
+  const decompressMessage = (content) => {
+    try {
+      if (!content || typeof content !== 'string') return content;
+      if (content.match(/^[A-Za-z0-9+/=]+$/)) {
+        const binaryString = atob(content);
+        const byteArray = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          byteArray[i] = binaryString.charCodeAt(i);
+        }
+        const decompressed = pako.inflate(byteArray, { to: 'string' });
+        return decompressed;
+      }
+      return content;
+    } catch (error) {
+      console.error('Decompression failed:', error.message, 'for input:', content);
+      toast.error('Failed to decode message. Contact support.');
+      return content;
+    }
+  };
+
+  // Fetch participant names from Conversation Model
+  const fetchParticipantNames = async () => {
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL.replace(/\/$/, '');
+      const response = await fetch(`${baseUrl}/chat/conversations/${conversationId}/participants`, {
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to fetch participants');
+      const data = await response.json();
+      const namesMap = data.participants.reduce((acc, participant) => {
+        acc[participant.userId] = participant.name || `User_${participant.userId.slice(-4)}`; // Fallback name
+        return acc;
+      }, {});
+      setParticipantNames(namesMap);
+    } catch (error) {
+      console.error('Error fetching participant names:', error);
+      toast.error('Failed to load participant names.');
+    }
+  };
 
   const fetchMessages = useCallback(async (skip = 0) => {
     if (!conversationId || loading) return;
@@ -34,18 +77,19 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
       }
       const data = await response.json();
       console.log('Fetched messages data:', data);
-      setMessages((prev) => {
-        const newMessages = [...(data.messages || [])].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-        return skip === 0 ? newMessages : [...prev, ...newMessages];
-      });
+      const newMessages = [...(data.messages || [])].map(msg => ({
+        ...msg,
+        content: decompressMessage(msg.content),
+      })).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+      setMessages((prev) => (skip === 0 ? newMessages : [...prev, ...newMessages]));
       setHasMore(data.hasMore || false);
     } catch (error) {
       console.error('Error fetching messages:', error);
       setMessages((prev) => [
         ...prev,
-        { content: `Error loading messages. Check backend setup. (${error.message})`, isSystem: true, timestamp: new Date().toISOString() },
+        { content: `Error: ${error.message}`, isSystem: true, timestamp: new Date().toISOString() },
       ]);
-      toast.error(`Failed to load messages: ${error.message}`);
+      toast.error(`Message load failed: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -53,29 +97,39 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
 
   useEffect(() => {
     if (!conversationId || conversationId === prevConversationIdRef.current) return;
-    console.log('Effect triggered for conversationId:', conversationId);
+    console.log('Effect triggered for conversationId:', conversationId, 'with userId:', userId);
     prevConversationIdRef.current = conversationId;
     setMessages([]);
     setLoading(true);
 
-    socketRef.current = io('http://localhost:5000', {
+    const socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    socketRef.current = io(socketUrl, {
       withCredentials: true,
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 5,
-      auth: { token: document.cookie.split('token=')[1]?.split(';')[0] || '' }, // Pass JWT token
+      auth: { token: document.cookie.split('token=')[1]?.split(';')[0] || '' },
+    });
+
+    socketRef.current.on('connect', () => {
+      console.log('Socket.IO connected for conversation:', conversationId);
+      socketRef.current.emit('joinRoom', conversationId, (response) => {
+        console.log('Join room response:', response);
+        if (response?.success) {
+          fetchMessages(0);
+          fetchParticipantNames(); // Load participant names
+        }
+      });
     });
 
     socketRef.current.on('connect_error', (err) => {
       console.error('WebSocket connection error:', err.message);
-      toast.error('Failed to connect to chat server.');
+      toast.error('Chat server connection failed. Check backend.');
     });
 
-    socketRef.current.emit('joinRoom', conversationId);
-    console.log('Emitted joinRoom with conversationId:', conversationId);
-
     socketRef.current.on('message', (newMessage) => {
-      console.log('Received new message:', newMessage);
-      setMessages((prev) => [...prev, newMessage].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)));
+      console.log('Received new message via Socket.IO:', newMessage);
+      const decompressedMessage = { ...newMessage, content: decompressMessage(newMessage.content) };
+      setMessages((prev) => [...prev, decompressedMessage].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)));
     });
 
     socketRef.current.on('messageDeleted', (messageIndex) => {
@@ -100,6 +154,7 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
       console.log('Cleaning up socket listeners for conversationId:', conversationId);
       if (socketRef.current) {
         socketRef.current.emit('leaveRoom', conversationId);
+        socketRef.current.off('connect');
         socketRef.current.off('connect_error');
         socketRef.current.off('message');
         socketRef.current.off('messageDeleted');
@@ -108,7 +163,7 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
         socketRef.current.disconnect();
       }
     };
-  }, [conversationId, fetchMessages]);
+  }, [conversationId, fetchMessages, userId]);
 
   const sendMessage = async () => {
     if (!message.trim() && !image) return;
@@ -132,7 +187,7 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
       toast.success('Message sent!');
     } catch (error) {
       console.error('Error sending message:', error);
-      toast.error(`Failed to send message: ${error.message}`);
+      toast.error(`Failed to send: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -142,9 +197,9 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
     const file = e.target.files[0];
     if (file && file.type.startsWith('image/')) {
       setImage(file);
-      toast.success('Image selected for upload!');
+      toast.success('Image selected!');
     } else {
-      toast.error('Please select a valid image file');
+      toast.error('Please select a valid image.');
       setImage(null);
     }
   };
@@ -160,11 +215,11 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
         }
         toast.success('Message deleted');
       } catch (error) {
-        console.error('Error deleting message:', error);
-        toast.error('Failed to delete message');
+        console.error('Error deleting:', error);
+        toast.error('Delete failed');
       }
     } else {
-      toast.error('You can only delete your own messages');
+      toast.error('Only delete your messages');
     }
   };
 
@@ -195,15 +250,7 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
         <>
           <List
             ref={messagesListRef}
-            sx={{
-              maxHeight: '350px',
-              overflowY: 'auto',
-              backgroundColor: 'var(--background)',
-              p: 1,
-              mb: 2,
-              borderRadius: '0 0 8px 8px',
-              flexGrow: 1,
-            }}
+            sx={{ maxHeight: '350px', overflowY: 'auto', backgroundColor: 'var(--background)', p: 1, mb: 2, borderRadius: '0 0 8px 8px', flexGrow: 1 }}
             onScroll={handleScroll}
           >
             {messages.map((msg, index) => (
@@ -237,11 +284,11 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
                         src={`${import.meta.env.VITE_API_URL.replace(/\/$/, '')}/images/${msg.imageId}`}
                         alt="Chat attachment"
                         style={{ maxWidth: '150px', maxHeight: '150px', borderRadius: '4px', objectFit: 'cover' }}
-                        onError={(e) => { e.target.style.display = 'none'; toast.error('Failed to load image'); }}
+                        onError={(e) => { e.target.style.display = 'none'; toast.error('Image load failed'); }}
                       />
                     )}
                     <ListItemText
-                      primary={msg.content}
+                      primary={`${msg.sender?.toString() === userId ? 'You' : participantNames[msg.sender] || 'Unknown User'}: ${msg.content}`}
                       secondary={new Date(msg.timestamp).toLocaleTimeString()}
                       primaryTypographyProps={{ color: 'var(--text)' }}
                       secondaryTypographyProps={{ color: 'var(--text-light)', fontSize: '12px' }}
@@ -258,13 +305,7 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
             <div ref={messagesEndRef} />
           </List>
           <Box sx={{ display: 'flex', alignItems: 'center', backgroundColor: 'var(--background)', p: 1, borderRadius: '0 0 8px 8px', boxShadow: '0 -1px 3px rgba(0,0,0,0.1)' }}>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleImageUpload}
-              style={{ display: 'none' }}
-              id="file-upload"
-            />
+            <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} id="file-upload" />
             <IconButton component="label" htmlFor="file-upload" sx={{ color: 'var(--primary-color)', mr: 1 }}>
               <AttachFileIcon />
             </IconButton>

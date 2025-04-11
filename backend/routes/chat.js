@@ -5,6 +5,8 @@ const Chat = require('../models/Chat');
 const Request = require('../models/Request');
 const { auth } = require('../middleware/auth');
 const mongoose = require('mongoose');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage() });
 
 router.post('/open', auth, async (req, res) => {
   const { requestId, recipientId } = req.body;
@@ -92,7 +94,6 @@ router.get('/conversations/:conversationId', auth, async (req, res) => {
     if (!conversation) {
       return res.status(404).json({ message: 'Conversation not found' });
     }
-    // Convert participant IDs to strings for comparison
     const userIdStr = req.user.id.toString();
     const participantIds = conversation.participants.map(p => p.toString());
     console.log('User ID:', userIdStr, 'Participants:', participantIds);
@@ -125,30 +126,55 @@ router.get('/conversations/:conversationId', auth, async (req, res) => {
   }
 });
 
-router.post('/conversations/:conversationId', auth, async (req, res) => {
+router.post('/conversations/:conversationId', auth, upload.single('image'), async (req, res) => {
   const { conversationId } = req.params;
-  const { content, image } = req.body;
+  console.log('Received POST /conversations request:', { conversationId, body: req.body, file: req.file, userId: req.user?.id });
+
   try {
     if (!mongoose.Types.ObjectId.isValid(conversationId)) {
       return res.status(400).json({ message: 'Invalid conversationId' });
     }
 
     const conversation = await Conversation.findById(conversationId).lean();
-    if (!conversation || !conversation.participants.includes(req.user.id)) {
-      return res.status(404).json({ message: 'Conversation not found or unauthorized' });
+    if (!conversation || !conversation.participants.map(p => p.toString()).includes(req.user.id.toString())) {
+      return res.status(403).json({ message: 'Conversation not found or unauthorized' });
     }
 
-    let compressedContent = content || '';
+    let content = req.body.content || '';
+    if (!content.trim() && !req.file) {
+      return res.status(400).json({ message: 'Content or image is required' });
+    }
+
     if (process.env.COMPRESS_MESSAGES === 'true' && content) {
       const zlib = require('zlib');
-      compressedContent = zlib.deflateSync(content).toString('base64');
+      content = zlib.deflateSync(content).toString('base64');
+    }
+
+    let image = null;
+    if (req.file) {
+      const bucket = req.app.get('bucket');
+      const sharp = require('sharp');
+      const compressedBuffer = await sharp(req.file.buffer)
+        .resize({ width: 800 })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+
+      const uploadStream = bucket.openUploadStream(`${Date.now()}-${req.file.originalname}`);
+      await new Promise((resolve, reject) => {
+        uploadStream.on('finish', () => resolve(uploadStream.id.toString()));
+        uploadStream.on('error', reject);
+        uploadStream.end(compressedBuffer);
+      });
+      image = { fileId: uploadStream.id.toString() };
+    } else if (req.body.image && req.body.image.fileId) {
+      image = { fileId: req.body.image.fileId };
     }
 
     const chat = await Chat.findOne({ conversationId });
     if (!chat) return res.status(404).json({ message: 'Chat not found' });
 
-    const message = { sender: req.user.id, content: compressedContent, timestamp: new Date(), read: false };
-    if (image && image.fileId) message.imageId = image.fileId;
+    const message = { sender: req.user.id, content: content || '', timestamp: new Date(), read: false };
+    if (image) message.imageId = image.fileId;
 
     chat.messages.push(message);
     await chat.save();
