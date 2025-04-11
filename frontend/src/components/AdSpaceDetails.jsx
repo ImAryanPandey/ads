@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { toast } from 'react-toastify';
@@ -12,10 +12,11 @@ import {
   CardMedia,
   Dialog,
   DialogContent,
+  DialogTitle,
   IconButton,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import ChatComponent from './ChatComponent.jsx';
+import ChatComponent from './ChatComponent';
 
 function AdSpaceDetails() {
   const { id } = useParams();
@@ -24,8 +25,8 @@ function AdSpaceDetails() {
   const [selectedImage, setSelectedImage] = useState(null);
   const [request, setRequest] = useState(null);
   const [user, setUser] = useState(null);
-  const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const intervalRef = useRef(null);
+  const [openChatDialog, setOpenChatDialog] = useState(false);
+  const [conversationId, setConversationId] = useState(null);
   const {
     register,
     handleSubmit,
@@ -36,14 +37,12 @@ function AdSpaceDetails() {
     defaultValues: { durationType: 'months', durationValue: '', requirements: '' },
     mode: 'onSubmit',
   });
-  const [durationType, setDurationType] = useState('months'); // Controlled state for durationType
-  const durationTypeValue = watch('durationType', 'months'); // Sync with form
+  const [durationType] = useState('months');
 
   useEffect(() => {
-    // Fetch current user
     const fetchUser = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/auth/me', {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/me`, {
           method: 'GET',
           credentials: 'include',
         });
@@ -52,17 +51,16 @@ function AdSpaceDetails() {
         setUser(data);
       } catch (error) {
         console.error('Error fetching user:', error);
-        toast.error('Failed to load user data');
+        toast.error('Failed to load user');
       }
     };
     fetchUser();
   }, []);
 
   useEffect(() => {
-    let isMounted = true; // Flag to prevent state updates on unmounted component
-
+    let isMounted = true;
     const fetchAdSpace = async () => {
-      if (!isMounted) return; // Prevent updates if unmounted
+      if (!isMounted) return;
       try {
         const response = await fetch(`${import.meta.env.VITE_API_URL}/adSpaces/${id}`, {
           method: 'GET',
@@ -70,20 +68,17 @@ function AdSpaceDetails() {
         });
         if (!response.ok) throw new Error('Failed to fetch AdSpace');
         const adSpaceData = await response.json();
-
-        if (adSpaceData && isMounted) {
+        if (isMounted) {
           const imagesWithUrls = await Promise.all(
             adSpaceData.images.map(async (image) => {
               try {
-                console.log(`Fetching image with ID: ${image.imageId}`);
-                const imageResponse = await fetch(
-                  `${import.meta.env.VITE_API_URL}/images/${image.imageId}`,
-                  { method: 'GET', credentials: 'include' }
-                );
+                const imageResponse = await fetch(`${import.meta.env.VITE_API_URL}/images/${image.imageId}`, {
+                  method: 'GET',
+                  credentials: 'include',
+                });
                 if (!imageResponse.ok) throw new Error('Failed to fetch image');
                 const blob = await imageResponse.blob();
-                const imageUrl = URL.createObjectURL(blob);
-                return { ...image, url: imageUrl };
+                return { ...image, url: URL.createObjectURL(blob) };
               } catch (imgError) {
                 console.error(`Error fetching image ${image.imageId}:`, imgError);
                 return { ...image, url: null };
@@ -91,8 +86,6 @@ function AdSpaceDetails() {
             })
           );
           setAdSpace({ ...adSpaceData, images: imagesWithUrls });
-        } else if (isMounted) {
-          toast.error('AdSpace not found');
         }
       } catch (error) {
         console.error('Error fetching ad space:', error);
@@ -101,7 +94,7 @@ function AdSpaceDetails() {
     };
 
     const fetchRequest = async () => {
-      if (!user || !isMounted) return; // Only fetch if user is loaded and component is mounted
+      if (!user || !isMounted) return;
       try {
         const response = await fetch(`${import.meta.env.VITE_API_URL}/requests/my`, {
           method: 'GET',
@@ -121,34 +114,16 @@ function AdSpaceDetails() {
     fetchAdSpace();
     if (user) fetchRequest();
 
-    return () => {
-      isMounted = false; // Cleanup on unmount
-    };
-  }, [id, user]); // Dependency on id and user to prevent unnecessary re-runs
-
-  // Set up image rotation
-  useEffect(() => {
-    if (adSpace && adSpace.images && adSpace.images.length > 1) {
-      intervalRef.current = setInterval(() => {
-        setCurrentImageIndex((prev) => (prev + 1) % adSpace.images.length);
-      }, 5000);
-    }
-
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [adSpace]);
+    return () => { isMounted = false; };
+  }, [id, user]);
 
   const onSubmit = async (data) => {
-    // Custom validation to prevent invalid submissions (requirements optional)
     const durationValue = parseInt(data.durationValue, 10);
     if (!data.durationType || isNaN(durationValue) || durationValue <= 0) {
       toast.error('Please select a duration type and enter a valid positive duration value');
       return;
     }
-
     try {
-      console.log('Submitting with adSpaceId:', id, 'data:', data); // Debug
       const response = await fetch(`${import.meta.env.VITE_API_URL}/requests/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -156,17 +131,40 @@ function AdSpaceDetails() {
         body: JSON.stringify({
           adSpaceId: id,
           duration: { type: data.durationType, value: durationValue },
-          requirements: data.requirements || '', // Allow empty requirements
+          requirements: data.requirements || '',
         }),
       });
       if (!response.ok) throw new Error('Failed to send request');
       const newRequest = await response.json();
       setRequest(newRequest);
       toast.success('Request sent successfully!');
-      reset(); // Clear form after success
+      reset();
     } catch (error) {
       console.error('Error sending request:', error);
       toast.error('Failed to send request');
+    }
+  };
+
+  const openChat = async () => {
+    if (!request || !adSpace || !user) {
+      toast.error('Cannot open chat yet');
+      return;
+    }
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/chat/open`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ adSpaceId: id, recipientId: adSpace.owner }),
+      });
+      if (!response.ok) throw new Error('Failed to open chat');
+      const data = await response.json();
+      setConversationId(data.conversationId);
+      setOpenChatDialog(true);
+      toast.success('Chat opened successfully!');
+    } catch (error) {
+      console.error('Error opening chat:', error);
+      toast.error('Failed to open chat');
     }
   };
 
@@ -180,6 +178,11 @@ function AdSpaceDetails() {
     setSelectedImage(null);
   };
 
+  const handleCloseChatDialog = () => {
+    setOpenChatDialog(false);
+    setConversationId(null);
+  };
+
   if (!adSpace) return <Typography sx={{ p: 3, color: 'var(--text)' }}>Loading...</Typography>;
 
   return (
@@ -190,49 +193,24 @@ function AdSpaceDetails() {
             <CardMedia
               component="img"
               height="300"
-              image={
-                adSpace.images?.length > 0 && adSpace.images[currentImageIndex]?.url
-                  ? adSpace.images[currentImageIndex].url
-                  : 'https://via.placeholder.com/300'
-              }
+              image={adSpace.images?.[0]?.url || 'https://via.placeholder.com/300'}
               alt={adSpace.title}
-              onError={(e) => {
-                e.target.src = 'https://via.placeholder.com/300';
-                e.target.onerror = null;
-              }}
-              onClick={() => handleImageClick(adSpace.images[currentImageIndex])}
-              sx={{
-                borderRadius: '12px',
-                boxShadow: 'var(--shadow)',
-                cursor: 'pointer',
-                width: '100%',
-                objectFit: 'cover',
-              }}
+              onError={(e) => { e.target.src = 'https://via.placeholder.com/300'; e.target.onerror = null; }}
+              onClick={() => handleImageClick(adSpace.images[0])}
+              sx={{ borderRadius: '12px', boxShadow: 'var(--shadow)', cursor: 'pointer', width: '100%', objectFit: 'cover' }}
             />
-            {adSpace.images?.length > 0 && (
+            {adSpace.images?.length > 1 && (
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
-                {adSpace.images.map((image, index) => (
+                {adSpace.images.slice(1).map((image, index) => (
                   <CardMedia
                     key={index}
                     component="img"
                     height="60"
                     image={image.url || 'https://via.placeholder.com/60'}
-                    alt={image.caption || `AdSpace Image ${index + 1}`}
-                    onClick={() => {
-                      setCurrentImageIndex(index);
-                      handleImageClick(image);
-                    }}
-                    onError={(e) => {
-                      e.target.src = 'https://via.placeholder.com/60';
-                      e.target.onerror = null;
-                    }}
-                    sx={{
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      width: '60px',
-                      objectFit: 'cover',
-                      border: currentImageIndex === index ? '2px solid var(--primary-color)' : 'none',
-                    }}
+                    alt={image.caption || `AdSpace Image ${index + 2}`}
+                    onClick={() => handleImageClick(image)}
+                    onError={(e) => { e.target.src = 'https://via.placeholder.com/60'; e.target.onerror = null; }}
+                    sx={{ borderRadius: '8px', cursor: 'pointer', width: '60px', objectFit: 'cover' }}
                   />
                 ))}
               </Box>
@@ -240,127 +218,105 @@ function AdSpaceDetails() {
           </Box>
         </Grid>
         <Grid item xs={12} md={6}>
-          <Typography variant="h4" sx={{ color: 'var(--primary-color)', fontWeight: 600 }}>
-            {adSpace.title}
-          </Typography>
-          <Typography variant="body1" sx={{ color: 'var(--text-light)', mt: 1 }}>
-            {adSpace.description}
-          </Typography>
-          <Typography variant="body2" sx={{ mt: 2 }}>
-            Address: {adSpace.address}
-          </Typography>
-          <Typography variant="body2">
-            Footfall: {adSpace.footfall} ({adSpace.footfallType})
-          </Typography>
-          <Typography variant="body2">
-            Pricing: Monthly: ₹{adSpace.pricing.baseMonthlyRate}
-          </Typography>
-          <Typography variant="body2">
-            Availability:{' '}
-            {adSpace.availability.startDate
-              ? `${new Date(adSpace.availability.startDate).toLocaleDateString()} - ${new Date(adSpace.availability.endDate).toLocaleDateString()}`
-              : 'N/A'}
-          </Typography>
+          <Typography variant="h4" sx={{ color: 'var(--primary-color)', fontWeight: 600 }}>{adSpace.title}</Typography>
+          <Typography variant="body1" sx={{ color: 'var(--text-light)', mt: 1 }}>{adSpace.description}</Typography>
+          <Typography variant="body2" sx={{ mt: 2 }}>Address: {adSpace.address}</Typography>
+          <Typography variant="body2">Footfall: {adSpace.footfall} ({adSpace.footfallType})</Typography>
+          <Typography variant="body2">Pricing: Monthly: ₹{adSpace.pricing.baseMonthlyRate}</Typography>
+          <Typography variant="body2">Availability: {adSpace.availability.startDate ? `${new Date(adSpace.availability.startDate).toLocaleDateString()} - ${new Date(adSpace.availability.endDate).toLocaleDateString()}` : 'N/A'}</Typography>
           <Typography variant="body2">Terms: {adSpace.terms || 'None'}</Typography>
         </Grid>
       </Grid>
       {user?.role === 'advertiser' && (
-        <>
-          <Box sx={{ mt: 4 }}>
-            <Typography variant="h6" sx={{ color: 'var(--text)' }}>
-              Send Request
-            </Typography>
-            <form onSubmit={handleSubmit(onSubmit)}>
-              <TextField
-                select
-                label="Duration Type"
-                fullWidth
-                margin="normal"
-                value={durationTypeValue} // Controlled value
-                onChange={(e) => setDurationType(e.target.value)} // Update state
-                {...register('durationType', { required: 'Duration type is required' })}
-                error={!!errors.durationType}
-                helperText={errors.durationType?.message}
-                sx={{
-                  backgroundColor: 'var(--container-light)',
-                  borderRadius: '8px',
-                }}
-              >
-                <MenuItem value="days">Days</MenuItem>
-                <MenuItem value="weeks">Weeks</MenuItem>
-                <MenuItem value="months">Months</MenuItem>
-              </TextField>
-              <TextField
-                label="Duration Value"
-                type="number"
-                fullWidth
-                margin="normal"
-                {...register('durationValue', {
-                  required: 'Duration value is required',
-                  min: { value: 1, message: 'Duration must be at least 1' },
-                  validate: (value) => !isNaN(parseInt(value, 10)) || 'Please enter a valid number',
-                })}
-                error={!!errors.durationValue}
-                helperText={errors.durationValue?.message}
-                sx={{
-                  backgroundColor: 'var(--container-light)',
-                  borderRadius: '8px',
-                }}
-              />
-              <TextField
-                label="Requirements"
-                fullWidth
-                margin="normal"
-                multiline
-                rows={2}
-                {...register('requirements')} // Optional field
-                sx={{
-                  backgroundColor: 'var(--container-light)',
-                  borderRadius: '8px',
-                }}
-              />
-              <Button
-                type="submit"
-                variant="contained"
-                sx={{
-                  mt: 2,
-                  backgroundColor: 'var(--primary-color)',
-                  '&:hover': { backgroundColor: 'var(--primary-dark)' },
-                }}
-                disabled={!!request} // Fix: Convert request to boolean
-              >
-                {request ? 'Request Sent' : 'Send Request'}
-              </Button>
-            </form>
-          </Box>
-          {request && (
-            <Box sx={{ mt: 4 }}>
-              <Typography variant="h6" sx={{ color: 'var(--text)' }}>
-                Chat with Owner
-              </Typography>
-              <ChatComponent requestId={request._id} adSpaceId={id} />
-            </Box>
-          )}
-        </>
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="h6" sx={{ color: 'var(--text)' }}>Send Request</Typography>
+          <form onSubmit={handleSubmit(onSubmit)}>
+            <TextField
+              select
+              label="Duration Type"
+              fullWidth
+              margin="normal"
+              value={durationType}
+              {...register('durationType', { required: 'Duration type is required' })}
+              error={!!errors.durationType}
+              helperText={errors.durationType?.message}
+              sx={{ backgroundColor: 'var(--container-light)', borderRadius: '8px' }}
+            >
+              <MenuItem value="days">Days</MenuItem>
+              <MenuItem value="weeks">Weeks</MenuItem>
+              <MenuItem value="months">Months</MenuItem>
+            </TextField>
+            <TextField
+              label="Duration Value"
+              type="number"
+              fullWidth
+              margin="normal"
+              {...register('durationValue', {
+                required: 'Duration value is required',
+                min: { value: 1, message: 'Duration must be at least 1' },
+                validate: (value) => !isNaN(parseInt(value, 10)) || 'Please enter a valid number',
+              })}
+              error={!!errors.durationValue}
+              helperText={errors.durationValue?.message}
+              sx={{ backgroundColor: 'var(--container-light)', borderRadius: '8px' }}
+            />
+            <TextField
+              label="Requirements"
+              fullWidth
+              margin="normal"
+              multiline
+              rows={2}
+              {...register('requirements')}
+              sx={{ backgroundColor: 'var(--container-light)', borderRadius: '8px' }}
+            />
+            <Button
+              type="submit"
+              variant="contained"
+              sx={{ mt: 2, backgroundColor: 'var(--primary-color)', '&:hover': { backgroundColor: 'var(--primary-dark)' } }}
+              disabled={!!request}
+            >
+              {request ? 'REQUEST SENT' : 'Send Request'}
+            </Button>
+            {request && adSpace && adSpace.owner && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="body2" sx={{ color: 'var(--text-light)', mb: 1 }}>
+                  Chat with Owner: {adSpace.owner.name || 'Unknown Owner'}
+                </Typography>
+                <Button
+                  variant="outlined"
+                  onClick={openChat}
+                  sx={{ borderRadius: '8px' }}
+                  disabled={!!conversationId}
+                >
+                  {conversationId ? 'Chat Opened' : 'Open Chat'}
+                </Button>
+              </Box>
+            )}
+          </form>
+        </Box>
       )}
-
-      {/* Full-Screen Image Modal */}
+      <Dialog open={openChatDialog} onClose={handleCloseChatDialog} maxWidth="md" fullWidth>
+        <DialogTitle>Chat with {adSpace?.owner?.name || 'Owner'}</DialogTitle>
+        <DialogContent>
+          {conversationId && <ChatComponent conversationId={conversationId} userId={user?.id} />}
+        </DialogContent>
+        <IconButton
+          onClick={handleCloseChatDialog}
+          sx={{ position: 'absolute', top: 8, right: 8, color: 'var(--text)' }}
+        >
+          <CloseIcon />
+        </IconButton>
+      </Dialog>
       <Dialog open={openImageModal} onClose={handleCloseImageModal} maxWidth="lg">
         <DialogContent sx={{ p: 0, position: 'relative' }}>
-          <IconButton
-            onClick={handleCloseImageModal}
-            sx={{ position: 'absolute', top: 8, right: 8, color: 'white' }}
-          >
+          <IconButton onClick={handleCloseImageModal} sx={{ position: 'absolute', top: 8, right: 8, color: 'white' }}>
             <CloseIcon />
           </IconButton>
           {selectedImage && (
             <img
               src={selectedImage.url || 'https://via.placeholder.com/300'}
               alt={selectedImage.caption || 'AdSpace Image'}
-              onError={(e) => {
-                e.target.src = 'https://via.placeholder.com/300';
-                e.target.onerror = null;
-              }}
+              onError={(e) => { e.target.src = 'https://via.placeholder.com/300'; e.target.onerror = null; }}
               style={{ width: '100%', maxHeight: '80vh', objectFit: 'contain' }}
             />
           )}

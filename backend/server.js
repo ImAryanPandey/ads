@@ -1,4 +1,3 @@
-// backend/server.js
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -19,7 +18,8 @@ const chatRoutes = require('./routes/chat');
 const User = require('./models/User');
 const AdSpace = require('./models/AdSpace');
 const Request = require('./models/Request');
-const ChatMessage = require('./models/ChatMessage'); // Import ChatMessage model
+const Conversation = require('./models/Conversation');
+const Chat = require('./models/Chat');
 const multer = require('multer');
 const cron = require('node-cron');
 const nodemailer = require('nodemailer');
@@ -29,19 +29,15 @@ const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: {
-    origin: frontendUrl,
-    methods: ['GET', 'POST'], // Specify allowed methods
-    credentials: true, // Allow credentials
-  },
+  cors: { origin: frontendUrl, methods: ['GET', 'POST'], credentials: true },
+  path: '/socket.io',
 });
 
 // MongoDB Connection
 connectDB();
-const mongoURI = process.env.MONGO_URI;
-const conn = mongoose.createConnection(mongoURI);
+const conn = mongoose.createConnection(process.env.MONGO_URI);
 
-// Multer Setup with Memory Storage
+// Multer Setup
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Middleware
@@ -49,195 +45,169 @@ app.use(cookieParser());
 app.use(cors({ origin: frontendUrl, credentials: true }));
 app.use(express.json());
 app.use(helmet());
-
-// Rate Limiting
-app.use(
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 1000,
-    handler: (req, res) => {
-      console.log(`Rate limit exceeded for IP: ${req.ip}`);
-      res.status(429).json({ message: 'Too many requests, please try again later' });
-    },
-  })
-);
+app.use(express.urlencoded({ extended: true }));
+// REMOVED: app.use(upload.any()); // Removed global multer to match old behavior
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
+  handler: (req, res) => res.status(429).json({ message: 'Too many requests' }),
+}));
 app.use(passport.initialize());
 
-// GridFS Bucket Initialization
+// GridFS Bucket
 let gridfsBucket;
 conn.once('open', () => {
   gridfsBucket = new mongoose.mongo.GridFSBucket(conn.db, { bucketName: 'images' });
   app.set('bucket', gridfsBucket);
-  console.log('GridFS bucket initialized');
+  app.set('upload', upload);
+  app.set('io', io);
+  console.log('GridFS initialized');
 }).on('error', (err) => {
-  console.error('GridFS connection error:', err);
+  console.error('GridFS connection error:', err.stack);
   process.exit(1);
 });
 
-// Make upload available to routes
-app.set('upload', upload);
-app.set('io', io); // Make io available to routes
-
-// Setup nodemailer transporter
+// Nodemailer Configuration
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST,
   port: process.env.EMAIL_PORT,
+  secure: process.env.EMAIL_PORT == 465,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
 });
+app.set('transporter', transporter);
 
-// Socket.io
+// Socket.IO Configuration
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
   socket.on('joinRoom', (conversationId) => {
-    socket.join(conversationId);
-    console.log(`User joined room: ${conversationId}`);
+    if (mongoose.Types.ObjectId.isValid(conversationId)) {
+      socket.join(conversationId);
+      console.log(`Joined room: ${conversationId}`);
+      socket.emit('roomJoined', { conversationId, message: 'Successfully joined chat room' });
+    } else {
+      console.warn('Invalid conversationId:', conversationId);
+      socket.emit('error', { message: 'Invalid conversation ID' });
+    }
   });
 
-  socket.on('sendMessage', async ({ room, message, sender, recipient }) => {
+  socket.on('sendMessage', async ({ conversationId, content, image }) => {
     try {
-      const senderUser = await User.findById(sender);
-      const recipientUser = await User.findById(recipient);
+      if (!mongoose.Types.ObjectId.isValid(conversationId)) throw new Error('Invalid conversationId');
+      const chat = await Chat.findOne({ conversationId }).lean();
+      if (!chat) throw new Error('Chat not found');
 
-      const chatMessage = new ChatMessage({
-        conversationId: room,
-        sender,
-        recipient,
-        content: message,
-      });
-      await chatMessage.save();
+      let compressedContent = content || '';
+      if (process.env.COMPRESS_MESSAGES === 'true' && content) {
+        const zlib = require('zlib');
+        compressedContent = zlib.deflateSync(content).toString('base64');
+      }
 
-      io.to(room).emit('message', {
-        ...chatMessage.toObject(),
-        sender: { _id: sender, name: senderUser.name },
-        recipient: { _id: recipient, name: recipientUser.name },
-      });
+      const message = { sender: socket.userId, content: compressedContent, timestamp: new Date(), read: false };
+      if (image && image.fileId) message.imageId = image.fileId;
 
-      const mailOptions = {
-        from: process.env.FROM_EMAIL,
-        to: recipientUser.email,
-        subject: `New Message from ${senderUser.name}`,
-        text: `You have a new message:\n\n${message}\n\nLog in to reply: http://localhost:5173/chat/${room}`,
-      };
-      await transporter.sendMail(mailOptions);
+      const chatDoc = await Chat.findOne({ conversationId });
+      chatDoc.messages.push(message);
+      await chatDoc.save();
+
+      io.to(conversationId).emit('message', message);
+      console.log(`Message sent in room ${conversationId}`);
     } catch (error) {
-      console.error('Error saving chat message:', error);
+      console.error('Error sending message:', error.stack);
+      socket.emit('error', { message: 'Failed to send message', details: error.message });
     }
   });
 
   socket.on('typing', ({ conversationId, userId }) => {
-    socket.to(conversationId).emit('typing', userId);
+    if (mongoose.Types.ObjectId.isValid(conversationId) && mongoose.Types.ObjectId.isValid(userId)) {
+      socket.to(conversationId).emit('typing', userId);
+    }
   });
 
   socket.on('stopTyping', ({ conversationId, userId }) => {
-    socket.to(conversationId).emit('stopTyping', userId);
+    if (mongoose.Types.ObjectId.isValid(conversationId) && mongoose.Types.ObjectId.isValid(userId)) {
+      socket.to(conversationId).emit('stopTyping', userId);
+    }
   });
 
-  socket.on('deleteMessage', (conversationId, messageId) => {
-    io.to(conversationId).emit('messageDeleted', messageId);
+  socket.on('deleteMessage', async ({ conversationId, messageIndex }) => {
+    try {
+      if (!mongoose.Types.ObjectId.isValid(conversationId) || messageIndex < 0) throw new Error('Invalid input');
+      const chat = await Chat.findOne({ conversationId });
+      if (chat && chat.messages[messageIndex]) {
+        const message = chat.messages[messageIndex];
+        if (message.imageId) {
+          const bucket = app.get('bucket');
+          await bucket.delete(message.imageId).catch(err => console.error('Image delete error:', err.stack));
+        }
+        chat.messages.splice(messageIndex, 1);
+        await chat.save();
+        io.to(conversationId).emit('messageDeleted', messageIndex);
+      }
+    } catch (error) {
+      console.error('Error deleting message:', error.stack);
+      socket.emit('error', { message: 'Failed to delete message', details: error.message });
+    }
   });
 
   socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
 });
 
 // Google OAuth
-passport.use(
-  new GoogleStrategy(
-    {
-      clientID: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: 'http://localhost:5000/api/auth/google/callback',
-    },
-    async (accessToken, refreshToken, profile, done) => {
-      try {
-        let user = await User.findOne({ email: profile.emails[0].value });
-        if (!user) {
-          user = new User({
-            name: profile.displayName,
-            email: profile.emails[0].value,
-            password: '',
-            verified: true,
-            role: '',
-            profile: { phone: '' },
-          });
-          await user.save();
-        }
-        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-        user.token = token;
-        done(null, user);
-      } catch (error) {
-        done(error, null);
-      }
-    }
-  )
-);
-
-// Cron Job for Expired Bookings
-cron.schedule('0 0 * * *', async () => {
+passport.use(new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  callbackURL: '/api/auth/google/callback',
+}, async (accessToken, refreshToken, profile, done) => {
   try {
-    console.log('Checking for expired bookings...');
-    const adSpaces = await AdSpace.find({ status: 'Booked' });
-    const now = new Date();
-
-    for (const adSpace of adSpaces) {
-      if (adSpace.booking && adSpace.booking.endDate && new Date(adSpace.booking.endDate) < now) {
-        adSpace.bookings = adSpace.bookings || [];
-        adSpace.bookings.push({
-          requestId: adSpace.booking.requestId,
-          startDate:
-            adSpace.booking.startDate ||
-            new Date(
-              adSpace.booking.endDate -
-                adSpace.booking.duration.value *
-                  (adSpace.booking.duration.type === 'days'
-                    ? 1
-                    : adSpace.booking.duration.type === 'weeks'
-                    ? 7
-                    : 30) *
-                  24 *
-                  60 *
-                  60 *
-                  1000
-            ),
-          endDate: adSpace.booking.endDate,
-          duration: adSpace.booking.duration,
-          status: 'Completed',
-        });
-        adSpace.status = 'Available';
-        adSpace.booking = null;
-        await adSpace.save();
-        console.log(`AdSpace ${adSpace._id} booking expired, reverted to Available`);
-      }
+    let user = await User.findOne({ email: profile.emails[0].value });
+    if (!user) {
+      user = new User({ name: profile.displayName, email: profile.emails[0].value, password: '', verified: true, role: '' });
+      await user.save();
     }
-
-    await redisClient.del('availableAdSpaces');
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    user.token = token;
+    done(null, user);
   } catch (error) {
-    console.error('Error checking expired bookings:', error);
+    console.error('OAuth error:', error.stack);
+    done(error, null);
   }
-});
+}));
 
-// Cron Job for Deleting Rejected Requests
+// 6-Month Cleanup
 cron.schedule('0 0 * * *', async () => {
-  try {
-    console.log('Checking for rejected requests to delete...');
-    const oneMonthAgo = new Date();
-    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+  console.log('Starting 6-month cleanup...');
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-    const rejectedRequests = await Request.find({
-      status: 'Rejected',
-      rejectedAt: { $lte: oneMonthAgo },
-    });
-
-    for (const request of rejectedRequests) {
-      await Request.deleteOne({ _id: request._id });
-      console.log(`Deleted rejected request ${request._id}`);
+  const chats = await Chat.find();
+  for (const chat of chats) {
+    const initialLength = chat.messages.length;
+    chat.messages = chat.messages.filter(msg => new Date(msg.timestamp) > sixMonthsAgo);
+    const deletedCount = initialLength - chat.messages.length;
+    if (deletedCount > 0) {
+      const bucket = app.get('bucket');
+      for (const msg of chat.messages.slice(initialLength - deletedCount)) {
+        if (msg.imageId) await bucket.delete(msg.imageId).catch(err => console.error('Image delete failed:', err.stack));
+      }
+      await chat.save();
+      console.log(`Deleted ${deletedCount} messages from ${chat.conversationId}`);
     }
-  } catch (error) {
-    console.error('Error deleting rejected requests:', error);
   }
+
+  const conversations = await Conversation.find().lean();
+  for (const conv of conversations) {
+    const chat = await Chat.findOne({ conversationId: conv._id });
+    if (chat && chat.messages.length === 0) {
+      await Conversation.deleteOne({ _id: conv._id });
+      await Chat.deleteOne({ conversationId: conv._id });
+      console.log(`Deleted empty conversation ${conv._id}`);
+    }
+  }
+  console.log('Cleanup completed.');
 });
 
 // Routes
@@ -249,60 +219,23 @@ app.use('/api/chat', chatRoutes);
 // Serve Images
 app.get('/api/images/:id', async (req, res) => {
   try {
-    const bucket = req.app.get('bucket');
-    if (!bucket) {
-      console.error('GridFS bucket not initialized');
-      return res.status(500).json({ message: 'GridFS bucket not initialized' });
-    }
-
+    const bucket = app.get('bucket');
     const fileId = new mongoose.Types.ObjectId(req.params.id);
     const files = await bucket.find({ _id: fileId }).toArray();
-    if (!files || files.length === 0) {
-      console.log(`Image not found for ID: ${fileId}`);
-      return res.status(404).json({ message: 'Image not found' });
-    }
+    if (!files.length) return res.status(404).json({ message: 'Image not found' });
 
-    const file = files[0];
-    const contentType =
-      file.contentType ||
-      (file.filename.endsWith('.jpg') || file.filename.endsWith('.jpeg')
-        ? 'image/jpeg'
-        : file.filename.endsWith('.png')
-        ? 'image/png'
-        : 'application/octet-stream');
-    res.set('Content-Type', contentType);
-    res.status(200);
-
-    console.log(`Starting to stream image with ID: ${fileId}, Content-Type: ${contentType}`);
-    const stream = bucket.openDownloadStream(fileId);
-    stream.on('error', (err) => {
-      console.error(`Stream error for file ID ${fileId}:`, err);
-      if (!res.headersSent) {
-        res.status(500).json({ message: 'Error streaming image' });
-      }
-    });
-    stream.on('end', () => {
-      console.log(`Finished streaming file ID: ${fileId}`);
-      if (!res.headersSent) {
-        res.end();
-      }
-    });
-    stream.pipe(res);
+    res.set('Content-Type', files[0].contentType || 'image/jpeg');
+    bucket.openDownloadStream(fileId).pipe(res);
   } catch (error) {
-    console.error(`Error in /api/images/:id endpoint:`, error.message);
-    if (!res.headersSent) {
-      res.status(500).json({ message: 'Server error', error: error.message });
-    }
+    console.error('Error serving image:', error.stack);
+    res.status(500).json({ message: 'Server error', details: error.message });
   }
 });
 
-// Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ message: 'Something went wrong!' });
+  console.error('Global error:', err.stack);
+  res.status(500).json({ message: 'Something went wrong!', details: err.message });
 });
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server on ${PORT}`));

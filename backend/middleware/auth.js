@@ -11,9 +11,11 @@ const auth = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
+    console.log('Decoded token:', decoded); // Log to confirm structure
+    req.user = { id: decoded.id, role: decoded.role }; // Explicitly set id and role
     next();
   } catch (error) {
+    console.error('Token verification error:', error.message); // Log the error
     res.status(401).json({ message: 'Token is not valid' });
   }
 };

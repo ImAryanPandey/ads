@@ -21,73 +21,43 @@ const transporter = nodemailer.createTransport({
 // Send a request
 router.post('/send', auth, role('advertiser'), async (req, res) => {
   const { adSpaceId, duration, requirements } = req.body;
-  console.log('Received request:', { adSpaceId, duration, requirements, userId: req.user.id }); // Debug
   try {
-    // Validate and fetch adSpace
-    console.log('Fetching AdSpace with id:', adSpaceId); // Debug
     const adSpace = await AdSpace.findById(adSpaceId);
     if (!adSpace) return res.status(404).json({ message: 'AdSpace not found' });
-    console.log('AdSpace found:', adSpace._id, adSpace.title); // Debug
-    if (adSpace.status === 'Booked') {
-      return res.status(400).json({ message: 'This AdSpace is already booked.' });
-    }
+    if (adSpace.status === 'Booked') return res.status(400).json({ message: 'AdSpace is booked' });
 
-    // Check for existing pending request
-    console.log('Checking for existing request with sender:', req.user.id); // Debug
-    const existingRequest = await Request.findOne({
-      adSpace: adSpace._id,
-      sender: new ObjectId(req.user.id),
-      status: 'Pending',
-    });
-    if (existingRequest) {
-      return res.status(400).json({ message: 'You already have a pending request for this AdSpace' });
-    }
+    const existingRequest = await Request.findOne({ adSpace: adSpace._id, sender: req.user.id, status: 'Pending' });
+    if (existingRequest) return res.status(400).json({ message: 'Pending request exists' });
 
-    // Create new request
-    console.log('Creating new request with sender:', req.user.id, 'and owner:', adSpace.owner); // Debug
-    const request = new Request({
-      adSpace: adSpace._id,
-      sender: new ObjectId(req.user.id),
-      owner: adSpace.owner,
-      duration,
-      requirements,
-    });
+    const request = new Request({ adSpace: adSpace._id, sender: req.user.id, owner: adSpace.owner, duration, requirements });
     await request.save();
-    console.log('Request saved with id:', request._id); // Debug
 
-    // Update adSpace status
     adSpace.status = 'Requested';
     await adSpace.save();
-    console.log('AdSpace status updated to Requested'); // Debug
     await redisClient.del('availableAdSpaces');
 
-    // Send email notification
     const owner = await User.findById(adSpace.owner);
-    if (!owner) throw new Error('Owner not found');
-    const mailOptions = {
+    await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: owner.email,
       subject: `New Request for "${adSpace.title}"`,
-      text: `You have a new request for "${adSpace.title}" from ${req.user.name}.`,
-    };
-    await transporter.sendMail(mailOptions);
-    console.log('Email sent to:', owner.email); // Debug
+      text: `Request from ${req.user.name}. Click 'Open Chat' to respond.`,
+    });
 
-    // Return response
     const populatedRequest = await Request.findById(request._id)
       .populate('sender', 'name businessName')
       .populate('owner', 'name businessName')
       .populate('adSpace', 'title address');
-    res.status(201).json({ ...populatedRequest.toObject() });
+    res.status(201).json({ ...populatedRequest.toObject(), chatEnabled: true }); // Flag for frontend
   } catch (error) {
-    console.error('Error sending request:', error.message, error.stack); // Detailed error logging
+    console.error('Error sending request:', error);
     res.status(500).json({ message: 'Server error', details: error.message });
   }
 });
 
 // Get user's requests (fixed for dashboard)
 router.get('/my', auth, async (req, res) => {
-  console.log('Fetching requests for user:', req.user.id); // Debug
+  console.log('Fetching requests for user:', req.user.id);
   try {
     let requests;
     if (req.user.role === 'owner') {
@@ -99,7 +69,7 @@ router.get('/my', auth, async (req, res) => {
         .populate('owner', 'name businessName')
         .populate('adSpace', 'title address');
     }
-    console.log('Found requests:', requests.length); // Debug
+    console.log('Found requests:', requests.length);
 
     res.status(200).json(requests);
   } catch (error) {
@@ -111,13 +81,13 @@ router.get('/my', auth, async (req, res) => {
 // Update request status
 router.post('/update/:id', auth, role('owner'), async (req, res) => {
   const { status, startDate, endDate } = req.body;
-  console.log('Updating request with id:', req.params.id, 'to status:', status); // Debug
+  console.log('Updating request with id:', req.params.id, 'to status:', status);
   try {
     const request = await Request.findById(new ObjectId(req.params.id)).populate('adSpace');
     if (!request || request.owner.toString() !== req.user.id) {
       return res.status(403).json({ message: 'Not authorized' });
     }
-    console.log('Request found:', request._id); // Debug
+    console.log('Request found:', request._id);
 
     request.status = status;
     if (status === 'Rejected') request.rejectedAt = new Date();
@@ -126,7 +96,7 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
       request.endDate = endDate;
     }
     await request.save();
-    console.log('Request status updated'); // Debug
+    console.log('Request status updated');
 
     const adSpace = await AdSpace.findById(request.adSpace._id);
     if (status === 'Approved') {
@@ -157,7 +127,7 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
       adSpace.status = 'Requested';
     }
     await adSpace.save();
-    console.log('AdSpace status updated:', adSpace.status); // Debug
+    console.log('AdSpace status updated:', adSpace.status);
     await redisClient.del('availableAdSpaces');
 
     const sender = await User.findById(request.sender);
@@ -168,7 +138,7 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
       text: `Your request for "${adSpace.title}" has been ${status.toLowerCase()}.`,
     };
     await transporter.sendMail(mailOptions);
-    console.log('Email sent for update'); // Debug
+    console.log('Email sent for update');
 
     const populatedRequest = await Request.findById(request._id)
       .populate('sender', 'name businessName')
@@ -176,7 +146,7 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
       .populate('adSpace', 'title address');
     res.status(200).json({ ...populatedRequest.toObject() });
   } catch (error) {
-    console.error('Error updating request:', error.message, error.stack); // Detailed error logging
+    console.error('Error updating request:', error.message, error.stack);
     res.status(500).json({ message: 'Server error', details: error.message });
   }
 });

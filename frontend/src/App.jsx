@@ -19,7 +19,6 @@ import BrowseAdSpaces from './components/BrowseAdSpaces.jsx';
 import AdSpaceDetails from './components/AdSpaceDetails.jsx';
 import AnalyticsDashboard from './components/AnalyticsDashboard.jsx';
 import EditAdSpace from './components/EditAdSpace.jsx';
-import ChatPage from './components/ChatPage.jsx';
 import Messages from './components/Messages.jsx'; // Import Messages
 import { Box, IconButton } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
@@ -139,7 +138,6 @@ function AppContent() {
           <Route path="/browse-adSpaces" element={<PrivateRoute><BrowseAdSpaces /></PrivateRoute>} />
           <Route path="/adSpace/:id" element={<PrivateRoute><AdSpaceDetails /></PrivateRoute>} />
           <Route path="/analytics" element={<PrivateRoute><AnalyticsDashboard /></PrivateRoute>} />
-          <Route path="/chat/:conversationId" element={<PrivateRoute><ChatPage /></PrivateRoute>} />
           <Route path="/messages" element={<PrivateRoute><Messages /></PrivateRoute>} />
           <Route path="/" element={<Navigate to="/login" />} />
         </Routes>

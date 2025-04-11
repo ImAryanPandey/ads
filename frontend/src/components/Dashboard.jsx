@@ -1,5 +1,4 @@
-// frontend/src/components/Dashboard.jsx
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import io from 'socket.io-client';
@@ -27,6 +26,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AnalyticsDashboard from './AnalyticsDashboard.jsx';
 import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import ChatComponent from './ChatComponent.jsx';
 
 const reliablePlaceholder = 'https://placehold.co/150x150';
 const tinyGrayImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==';
@@ -45,29 +45,13 @@ function Dashboard() {
   const [endDate, setEndDate] = useState(new Date());
   const [isApproving, setIsApproving] = useState(false);
   const [renderError, setRenderError] = useState(null);
+  const [openChatDialog, setOpenChatDialog] = useState(false);
+  const [conversationId, setConversationId] = useState(null);
+  const [currentUserId, setCurrentUserId] = useState(null);
+  const [isUserLoading, setIsUserLoading] = useState(true);
   const navigate = useNavigate();
   const intervalRefs = useRef({});
   const socketRef = useRef(null);
-
-  const fetchRequests = async () => {
-    try {
-      const reqResponse = await fetch(`${import.meta.env.VITE_API_URL}/requests/my`, {
-        method: 'GET',
-        credentials: 'include',
-      });
-      if (!reqResponse.ok) {
-        console.error('Requests fetch failed with status:', reqResponse.status);
-        throw new Error('Failed to fetch requests');
-      }
-      const requestsData = await reqResponse.json();
-      console.log('Fetched requests data:', requestsData);
-      setRequests(requestsData || []);
-    } catch (reqError) {
-      console.error('Error fetching requests:', reqError);
-      setRequests([]);
-      toast.warn('Could not load requests, but dashboard is still available');
-    }
-  };
 
   useEffect(() => {
     socketRef.current = io('http://localhost:5000', {
@@ -91,6 +75,7 @@ function Dashboard() {
     });
 
     const fetchData = async () => {
+      setIsUserLoading(true);
       try {
         const userResponse = await fetch(`${import.meta.env.VITE_API_URL}/auth/me`, {
           method: 'GET',
@@ -98,6 +83,7 @@ function Dashboard() {
         });
         if (!userResponse.ok) {
           const errorData = await userResponse.json();
+          console.log('Error response from /auth/me:', errorData);
           if (userResponse.status === 403 && errorData.redirect) {
             navigate(errorData.redirect);
             return;
@@ -105,60 +91,63 @@ function Dashboard() {
           throw new Error('Failed to fetch user');
         }
         const userData = await userResponse.json();
-        console.log('User data from /auth/me:', userData);
-        const userRole = userData.role;
-        setRole(userRole);
+        console.log('Full user data from /auth/me:', userData);
+        setRole(userData.role || '');
+        setCurrentUserId(userData._id ? userData._id.toString() : null);
+      } catch (error) {
+        console.error('Error loading user data:', error.message);
+        toast.error('Failed to load user data. Please log in again.');
+        setCurrentUserId(null);
+      } finally {
+        setIsUserLoading(false);
+      }
 
-        if (userRole === 'owner') {
-          const adSpaceResponse = await fetch(`${import.meta.env.VITE_API_URL}/adSpaces/my`, {
-            method: 'GET',
-            credentials: 'include',
-          });
-          if (!adSpaceResponse.ok) throw new Error('Failed to fetch AdSpaces');
-          const fetchedAdSpaces = await adSpaceResponse.json();
-          console.log('Number of ad spaces:', fetchedAdSpaces.length);
-          fetchedAdSpaces.forEach((adSpace) => {
-            console.log(`Ad space ${adSpace._id} has ${adSpace.images.length} images`);
-          });
-
-          const adSpacesWithImageUrls = await Promise.all(
-            fetchedAdSpaces.map(async (adSpace) => {
-              const imagesWithUrls = await Promise.all(
-                adSpace.images.map(async (image) => {
-                  try {
-                    console.log(`Fetching image with ID: ${image.imageId}`);
-                    const imageResponse = await fetch(
-                      `${import.meta.env.VITE_API_URL}/images/${image.imageId}`,
-                      { method: 'GET', credentials: 'include' }
-                    );
-                    if (!imageResponse.ok) throw new Error('Failed to fetch image');
-                    const blob = await imageResponse.blob();
-                    const imageUrl = URL.createObjectURL(blob);
-                    return { ...image, url: imageUrl };
-                  } catch (imgError) {
-                    console.error(`Error fetching image ${image.imageId}:`, imgError);
-                    return { ...image, url: null };
-                  }
-                })
-              );
-              return { ...adSpace, images: imagesWithUrls };
-            })
-          );
-          setAdSpaces(adSpacesWithImageUrls);
-
-          const initialImages = {};
-          adSpacesWithImageUrls.forEach((adSpace) => {
-            initialImages[adSpace._id] = 0;
-          });
-          setCurrentImages(initialImages);
-
+      try {
+        if (role === 'owner' || role === 'advertiser') {
           await fetchRequests();
-        } else if (userRole === 'advertiser') {
-          await fetchRequests();
+          if (role === 'owner') {
+            const adSpaceResponse = await fetch(`${import.meta.env.VITE_API_URL}/adSpaces/my`, {
+              method: 'GET',
+              credentials: 'include',
+            });
+            if (!adSpaceResponse.ok) throw new Error('Failed to fetch AdSpaces');
+            const fetchedAdSpaces = await adSpaceResponse.json();
+            console.log('Number of ad spaces:', fetchedAdSpaces.length);
+            const adSpacesWithImageUrls = await Promise.all(
+              fetchedAdSpaces.map(async (adSpace) => {
+                const imagesWithUrls = await Promise.all(
+                  adSpace.images.map(async (image) => {
+                    try {
+                      console.log(`Fetching image with ID: ${image.imageId}`);
+                      const imageResponse = await fetch(
+                        `${import.meta.env.VITE_API_URL}/images/${image.imageId}`,
+                        { method: 'GET', credentials: 'include' }
+                      );
+                      if (!imageResponse.ok) throw new Error('Failed to fetch image');
+                      const blob = await imageResponse.blob();
+                      const imageUrl = URL.createObjectURL(blob);
+                      return { ...image, url: imageUrl };
+                    } catch (imgError) {
+                      console.error(`Error fetching image ${image.imageId}:`, imgError);
+                      return { ...image, url: null };
+                    }
+                  })
+                );
+                return { ...adSpace, images: imagesWithUrls };
+              })
+            );
+            setAdSpaces(adSpacesWithImageUrls);
+
+            const initialImages = {};
+            adSpacesWithImageUrls.forEach((adSpace) => {
+              initialImages[adSpace._id] = 0;
+            });
+            setCurrentImages(initialImages);
+          }
         }
       } catch (error) {
-        console.error('Error loading dashboard:', error.message);
-        toast.error('Failed to load dashboard');
+        console.error('Error loading dashboard data:', error.message);
+        toast.error('Failed to load dashboard data');
       }
     };
     fetchData();
@@ -167,8 +156,29 @@ function Dashboard() {
       if (socketRef.current) {
         socketRef.current.disconnect();
       }
+      Object.values(intervalRefs.current).forEach((interval) => clearInterval(interval));
     };
-  }, [navigate]);
+  }, [navigate, role]);
+
+  const fetchRequests = async () => {
+    try {
+      const reqResponse = await fetch(`${import.meta.env.VITE_API_URL}/requests/my`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (!reqResponse.ok) {
+        console.error('Requests fetch failed with status:', reqResponse.status);
+        throw new Error('Failed to fetch requests');
+      }
+      const requestsData = await reqResponse.json();
+      console.log('Fetched requests data:', requestsData);
+      setRequests(requestsData || []);
+    } catch (reqError) {
+      console.error('Error fetching requests:', reqError);
+      setRequests([]);
+      toast.warn('Could not load requests, but dashboard is still available');
+    }
+  };
 
   useEffect(() => {
     adSpaces.forEach((adSpace) => {
@@ -181,7 +191,6 @@ function Dashboard() {
         }, 5000);
       }
     });
-
     return () => {
       Object.values(intervalRefs.current).forEach((interval) => clearInterval(interval));
     };
@@ -248,20 +257,46 @@ function Dashboard() {
     }
   };
 
-  const handleOpenChat = async (requestId) => {
+  const openChat = async (requestId, _, recipientId) => {
+    console.log('Opening chat for requestId:', requestId, 'recipientId:', recipientId, 'currentUserId:', currentUserId);
+    if (isUserLoading || !requestId || !recipientId || openChatDialog) {
+      console.log('Chat open failed - missing data or already open:', { isUserLoading, currentUserId, requestId, recipientId, openChatDialog });
+      toast.error('Chat already open or invalid data. Please wait or refresh.');
+      return;
+    }
+    const userIdToUse = currentUserId || 'tempUserId';
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/chat/conversation/request/${requestId}`, {
-        method: 'GET',
+      const baseUrl = import.meta.env.VITE_API_URL.replace(/\/$/, '');
+      const response = await fetch(`${baseUrl}/chat/open`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        body: JSON.stringify({ requestId, recipientId, userId: userIdToUse }),
       });
+      console.log('Chat open response status:', response.status);
       if (!response.ok) {
-        throw new Error('Failed to fetch conversation');
+        const errorData = await response.json();
+        console.error('Error data from /chat/open:', errorData);
+        throw new Error(errorData.message || 'Failed to open chat');
       }
       const data = await response.json();
-      navigate(`/chat/${data.conversationId}`);
+      console.log('Chat open response data:', data);
+      if (data.conversationId) {
+        setConversationId(data.conversationId);
+        setOpenChatDialog(true);
+        toast.success('Chat opened successfully!');
+      } else {
+        throw new Error('No conversationId returned');
+      }
     } catch (error) {
-      toast.error('Failed to open chat');
+      console.error('Error opening chat:', error);
+      toast.error(`Failed to open chat: ${error.message}`);
     }
+  };
+
+  const handleCloseChatDialog = () => {
+    setOpenChatDialog(false);
+    setConversationId(null);
   };
 
   const openDeleteDialog = (adSpace) => {
@@ -313,13 +348,27 @@ function Dashboard() {
     );
   }
 
+  const chatProps = useMemo(
+    () => ({
+      conversationId,
+      userId: currentUserId || 'tempUserId',
+      onClose: handleCloseChatDialog,
+      title: requests.find((r) => r._id === selectedRequestId)?.adSpace?.title || 'Chat',
+    }),
+    [conversationId, currentUserId, selectedRequestId, requests]
+  );
+
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>
       <Box sx={{ p: 3, backgroundColor: 'var(--background)', color: 'var(--text)' }}>
         <Typography variant="h4" gutterBottom sx={{ fontWeight: 600 }}>
           Dashboard
         </Typography>
-        {role === 'owner' ? (
+        {isUserLoading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+            <CircularProgress />
+          </Box>
+        ) : role === 'owner' ? (
           <>
             <Button
               variant="contained"
@@ -372,7 +421,7 @@ function Dashboard() {
                           }
                         }}
                         onClick={() => navigate(`/adSpace/${adSpace._id}`)}
-                        sx={{ cursor: 'pointer' }} // Reverted to original sx props
+                        sx={{ cursor: 'pointer' }}
                       />
                       <CardContent>
                         <Typography variant="h6" sx={{ color: 'var(--text)' }}>
@@ -434,6 +483,7 @@ function Dashboard() {
               <Grid container spacing={2}>
                 {requests.map((req) => {
                   try {
+                    const recipientId = req.sender?._id || req.owner?._id;
                     return (
                       <Grid item xs={12} key={req._id}>
                         <Card
@@ -448,12 +498,12 @@ function Dashboard() {
                           <CardHeader
                             avatar={
                               <Avatar sx={{ bgcolor: 'var(--primary-color)' }}>
-                                {req.sender?.name?.charAt(0) || '?'}
+                                {req.sender?.name?.charAt(0) || req.owner?.name?.charAt(0) || '?'}
                               </Avatar>
                             }
                             title={
                               <Typography variant="h6" sx={{ color: 'var(--text)' }}>
-                                {req.sender?.name || 'Unknown Sender'}
+                                {req.sender?.name || req.owner?.name || 'Unknown Sender'}
                               </Typography>
                             }
                             subheader={
@@ -506,13 +556,16 @@ function Dashboard() {
                               </Box>
                             )}
                             <Box sx={{ mt: 2 }}>
+                              <Typography variant="body2" sx={{ color: 'var(--text-light)', mb: 1 }}>
+                                Chat with Requester: {req.sender?.name || req.owner?.name || 'Unknown Requester'}
+                              </Typography>
                               <Button
                                 variant="outlined"
-                                onClick={() => handleOpenChat(req._id)}
+                                onClick={() => openChat(req._id, null, recipientId)}
                                 sx={{ borderRadius: '8px' }}
-                                disabled={isApproving}
+                                disabled={openChatDialog || isUserLoading}
                               >
-                                Open Chat
+                                {openChatDialog ? 'Chat Opened' : 'Open Chat'}
                               </Button>
                             </Box>
                           </CardContent>
@@ -556,6 +609,7 @@ function Dashboard() {
               <Grid container spacing={2}>
                 {requests.map((req) => {
                   try {
+                    const recipientId = req.owner?._id;
                     return (
                       <Grid item xs={12} key={req._id}>
                         <Card
@@ -580,8 +634,7 @@ function Dashboard() {
                             }
                             subheader={
                               <Typography variant="body2" sx={{ color: 'var(--text-light)' }}>
-                                Owner: {req.owner?.name || 'Unknown Owner'} (Location:{' '}
-                                {req.adSpace?.address || 'N/A'})
+                                Owner: {req.owner?.name || 'Unknown Owner'} (Location: {req.adSpace?.address || 'N/A'})
                               </Typography>
                             }
                           />
@@ -606,12 +659,16 @@ function Dashboard() {
                               />
                             </Box>
                             <Box sx={{ mt: 2 }}>
+                              <Typography variant="body2" sx={{ color: 'var(--text-light)', mb: 1 }}>
+                                Chat with Owner: {req.owner?.name || 'Unknown Owner'}
+                              </Typography>
                               <Button
                                 variant="outlined"
-                                onClick={() => handleOpenChat(req._id)}
+                                onClick={() => openChat(req._id, null, recipientId)}
                                 sx={{ borderRadius: '8px' }}
+                                disabled={openChatDialog || isUserLoading}
                               >
-                                Open Chat
+                                {openChatDialog ? 'Chat Opened' : 'Open Chat'}
                               </Button>
                             </Box>
                           </CardContent>
@@ -635,6 +692,37 @@ function Dashboard() {
           <Typography>Loading...</Typography>
         )}
 
+        <Dialog open={openChatDialog} onClose={handleCloseChatDialog} maxWidth="md" fullWidth>
+          <DialogTitle>
+            Chat with{' '}
+            {requests.find((r) => r._id === selectedRequestId)?.sender?.name ||
+              requests.find((r) => r._id === selectedRequestId)?.owner?.name ||
+              'User'}
+          </DialogTitle>
+          <DialogContent>
+            {console.log('Rendering ChatComponent with conversationId:', conversationId, 'userId:', currentUserId || 'tempUserId')}
+            {conversationId ? (
+              <ChatComponent
+                key={conversationId}
+                conversationId={conversationId}
+                userId={currentUserId || 'tempUserId'}
+                onClose={handleCloseChatDialog}
+                title={requests.find((r) => r._id === selectedRequestId)?.adSpace?.title || 'Chat'}
+              />
+            ) : (
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '350px' }}>
+                <CircularProgress />
+                <Typography sx={{ ml: 2 }}>Loading chat... Please wait or refresh.</Typography>
+              </Box>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseChatDialog} color="primary">
+              Close
+            </Button>
+          </DialogActions>
+        </Dialog>
+
         <Dialog open={deleteDialogOpen} onClose={handleCloseDeleteDialog}>
           <DialogTitle>Confirm AdSpace Deletion</DialogTitle>
           <DialogContent>
@@ -657,80 +745,6 @@ function Dashboard() {
             </Button>
             <Button onClick={handleDeleteAdSpace} color="error" variant="contained">
               Delete
-            </Button>
-          </DialogActions>
-        </Dialog>
-
-        <Dialog open={showDateForm} onClose={() => setShowDateForm(false)}>
-          <DialogTitle>Confirm Booking Dates</DialogTitle>
-          <DialogContent>
-            {isApproving ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-                <CircularProgress />
-              </Box>
-            ) : (
-              <>
-                <Typography sx={{ mb: 2 }}>
-                  Please enter the dates you agreed on with the requester via chat.
-                </Typography>
-                <Box sx={{ mb: 2 }}>
-                  <DatePicker
-                    label="Start Date"
-                    value={startDate}
-                    onChange={(newValue) => setStartDate(newValue)}
-                    minDate={new Date()}
-                    slotProps={{
-                      textField: {
-                        fullWidth: true,
-                        InputLabelProps: { style: { color: 'var(--text-light)' } },
-                        sx: {
-                          input: {
-                            color: (theme) =>
-                              theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)',
-                          },
-                          backgroundColor: 'var(--container-light)',
-                          borderRadius: '8px',
-                        },
-                      },
-                    }}
-                  />
-                </Box>
-                <Box>
-                  <DatePicker
-                    label="End Date"
-                    value={endDate}
-                    onChange={(newValue) => setEndDate(newValue)}
-                    minDate={startDate || new Date()}
-                    slotProps={{
-                      textField: {
-                        fullWidth: true,
-                        InputLabelProps: { style: { color: 'var(--text-light)' } },
-                        sx: {
-                          input: {
-                            color: (theme) =>
-                              theme.palette.mode === 'dark' ? 'var(--input-text-dark)' : 'var(--input-text-light)',
-                          },
-                          backgroundColor: 'var(--container-light)',
-                          borderRadius: '8px',
-                        },
-                      },
-                    }}
-                  />
-                </Box>
-              </>
-            )}
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setShowDateForm(false)} color="primary" disabled={isApproving}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleApproveWithDates}
-              color="success"
-              variant="contained"
-              disabled={isApproving}
-            >
-              Confirm Approval
             </Button>
           </DialogActions>
         </Dialog>
