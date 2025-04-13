@@ -41,15 +41,18 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
     }
   };
 
-  // Fetch participant names from Conversation Model
+  // Fetch participant names from Conversation Model with error handling
   const fetchParticipantNames = async () => {
     try {
       const baseUrl = import.meta.env.VITE_API_URL.replace(/\/$/, '');
       const response = await fetch(`${baseUrl}/chat/conversations/${conversationId}/participants`, {
         credentials: 'include',
       });
-      if (!response.ok) throw new Error('Failed to fetch participants');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       const data = await response.json();
+      console.log('Fetched participant names:', data);
       const namesMap = data.participants.reduce((acc, participant) => {
         acc[participant.userId] = participant.name || `User_${participant.userId.slice(-4)}`; // Fallback name
         return acc;
@@ -57,7 +60,18 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
       setParticipantNames(namesMap);
     } catch (error) {
       console.error('Error fetching participant names:', error);
-      toast.error('Failed to load participant names.');
+      toast.error('Failed to load participant names. Using fallback names.');
+      // Fallback: Use sender IDs as temporary names
+      setParticipantNames((prev) => ({
+        ...prev,
+        [userId]: 'You',
+        ...messages.reduce((acc, msg) => {
+          if (msg.sender && msg.sender.toString() !== userId && !acc[msg.sender]) {
+            acc[msg.sender] = `User_${msg.sender.toString().slice(-4)}`;
+          }
+          return acc;
+        }, {}),
+      }));
     }
   };
 
@@ -128,7 +142,12 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
 
     socketRef.current.on('message', (newMessage) => {
       console.log('Received new message via Socket.IO:', newMessage);
-      const decompressedMessage = { ...newMessage, content: decompressMessage(newMessage.content) };
+      const decompressedMessage = {
+        ...newMessage,
+        content: decompressMessage(newMessage.content || ''),
+        sender: newMessage.sender || null,
+        timestamp: newMessage.timestamp || new Date(),
+      };
       setMessages((prev) => [...prev, decompressedMessage].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)));
     });
 

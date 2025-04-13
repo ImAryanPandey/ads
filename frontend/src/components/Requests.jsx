@@ -1,4 +1,3 @@
-// frontend/src/components/Requests.jsx
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { Link, useNavigate } from 'react-router-dom';
@@ -21,7 +20,7 @@ import {
 } from '@mui/material';
 import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { format } from 'date-fns'; // For formatting dates
+import { format } from 'date-fns';
 
 const Requests = () => {
   const [requests, setRequests] = useState([]);
@@ -58,24 +57,40 @@ const Requests = () => {
 
   const handleOpenDateForm = (requestId) => {
     setSelectedRequestId(requestId);
-    setStartDate(new Date());
-    setEndDate(new Date());
+    const newStartDate = new Date();
+    newStartDate.setHours(0, 0, 0, 0);
+    const newEndDate = new Date(newStartDate);
+    newEndDate.setDate(newStartDate.getDate() + 1); // Default to one day later
+    setStartDate(newStartDate);
+    setEndDate(newEndDate);
     setShowDateForm(true);
   };
 
   const handleApproveWithDates = async () => {
     if (!selectedRequestId) return;
 
+    // Validate dates before sending
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const minEndDate = new Date(start);
+    minEndDate.setDate(minEndDate.getDate() + 1);
+
+    if (end < minEndDate) {
+      toast.error('End date must be at least one day after start date');
+      return;
+    }
+
     setIsApproving(true);
     try {
+      console.log('Sending approval with dates:', { startDate, endDate }); // For debugging
       const response = await fetch(`${import.meta.env.VITE_API_URL}/requests/update/${selectedRequestId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           status: 'Approved',
-          startDate: startDate.toISOString(),
-          endDate: endDate.toISOString(),
+          startDate: start.toISOString(),
+          endDate: end.toISOString(),
         }),
       });
       if (!response.ok) {
@@ -268,7 +283,12 @@ const Requests = () => {
                   <DatePicker
                     label="Start Date"
                     value={startDate}
-                    onChange={(newValue) => setStartDate(newValue)}
+                    onChange={(newValue) => {
+                      if (newValue) {
+                        const normalizedDate = new Date(newValue.setHours(0, 0, 0, 0));
+                        setStartDate(normalizedDate);
+                      }
+                    }}
                     minDate={new Date()}
                     slotProps={{
                       textField: {
@@ -290,7 +310,12 @@ const Requests = () => {
                   <DatePicker
                     label="End Date"
                     value={endDate}
-                    onChange={(newValue) => setEndDate(newValue)}
+                    onChange={(newValue) => {
+                      if (newValue) {
+                        const normalizedDate = new Date(newValue.setHours(0, 0, 0, 0));
+                        setEndDate(normalizedDate);
+                      }
+                    }}
                     minDate={startDate || new Date()}
                     slotProps={{
                       textField: {

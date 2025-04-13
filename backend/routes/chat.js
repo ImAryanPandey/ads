@@ -187,7 +187,36 @@ router.post('/conversations/:conversationId', auth, upload.single('image'), asyn
     res.status(500).json({ message: 'Server error', details: error.message });
   }
 });
+// routes/chat.js
+router.get('/conversations/:conversationId/participants', auth, async (req, res) => {
+  const { conversationId } = req.params;
+  console.log('GET /conversations/:conversationId/participants request:', { conversationId, userId: req.user?.id });
 
+  try {
+    if (!mongoose.Types.ObjectId.isValid(conversationId)) {
+      return res.status(400).json({ message: 'Invalid conversationId' });
+    }
+
+    const conversation = await Conversation.findById(conversationId).populate('participants', 'name'); // Adjust fields as per your schema
+    if (!conversation) {
+      return res.status(404).json({ message: 'Conversation not found' });
+    }
+    const userIdStr = req.user.id.toString();
+    const participantIds = conversation.participants.map(p => p._id.toString());
+    if (!participantIds.includes(userIdStr)) {
+      return res.status(403).json({ message: 'Unauthorized: User not a participant' });
+    }
+
+    const participants = conversation.participants.map(p => ({
+      userId: p._id.toString(),
+      name: p.name || `User_${p._id.toString().slice(-4)}`, // Fallback name
+    }));
+    res.status(200).json({ participants });
+  } catch (error) {
+    console.error('Error fetching participants:', error.stack);
+    res.status(500).json({ message: 'Server error', details: error.message });
+  }
+});
 router.post('/attachments', auth, async (req, res) => {
   const upload = req.app.get('upload');
   upload.single('image')(req, res, async (err) => {

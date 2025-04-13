@@ -48,7 +48,7 @@ router.post('/send', auth, role('advertiser'), async (req, res) => {
       .populate('sender', 'name businessName')
       .populate('owner', 'name businessName')
       .populate('adSpace', 'title address');
-    res.status(201).json({ ...populatedRequest.toObject(), chatEnabled: true }); // Flag for frontend
+    res.status(201).json({ ...populatedRequest.toObject(), chatEnabled: true });
   } catch (error) {
     console.error('Error sending request:', error);
     res.status(500).json({ message: 'Server error', details: error.message });
@@ -103,8 +103,14 @@ router.post('/update/:id', auth, role('owner'), async (req, res) => {
       if (!startDate || !endDate) return res.status(400).json({ message: 'Start and end dates required' });
       const bookingStartDate = new Date(startDate);
       const bookingEndDate = new Date(endDate);
-      if (isNaN(bookingStartDate) || isNaN(bookingEndDate) || bookingEndDate <= bookingStartDate || bookingStartDate < new Date()) {
-        return res.status(400).json({ message: 'Invalid dates' });
+      if (isNaN(bookingStartDate) || isNaN(bookingEndDate)) {
+        return res.status(400).json({ message: 'Invalid date format for start or end date' });
+      }
+      if (bookingEndDate <= bookingStartDate) {
+        return res.status(400).json({ message: 'End date must be after start date' });
+      }
+      if (bookingStartDate < new Date()) {
+        return res.status(400).json({ message: 'Start date cannot be in the past' });
       }
 
       adSpace.status = 'Booked';
