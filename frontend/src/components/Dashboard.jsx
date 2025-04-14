@@ -66,8 +66,7 @@ function Dashboard() {
 
     socketRef.current.on('connect_error', (err) => {
       console.error('Socket.IO connection error:', err.message);
-      toast.error('Failed to connect to real-time updates');
-      socketRef.current.disconnect();
+      toast.error('Failed to connect to real-time updates. Continuing without real-time features.');
     });
 
     socketRef.current.on('disconnect', () => {
@@ -92,8 +91,8 @@ function Dashboard() {
         }
         const userData = await userResponse.json();
         console.log('Full user data from /auth/me:', userData);
-        setRole(userData.role || '');
-        setCurrentUserId(userData._id ? userData._id.toString() : null);
+        setRole(userData.user?.role || userData.role || '');
+        setCurrentUserId(userData.user?._id ? userData.user._id.toString() : userData._id ? userData._id.toString() : null);
       } catch (error) {
         console.error('Error loading user data:', error.message);
         toast.error('Failed to load user data. Please log in again.');
@@ -112,7 +111,7 @@ function Dashboard() {
             });
             if (!adSpaceResponse.ok) throw new Error('Failed to fetch AdSpaces');
             const fetchedAdSpaces = await adSpaceResponse.json();
-            console.log('Number of ad spaces:', fetchedAdSpaces.length);
+            console.log('AdSpaces response:', fetchedAdSpaces);
             const adSpacesWithImageUrls = await Promise.all(
               fetchedAdSpaces.map(async (adSpace) => {
                 const imagesWithUrls = await Promise.all(
@@ -153,9 +152,7 @@ function Dashboard() {
     fetchData();
 
     return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-      }
+      if (socketRef.current) socketRef.current.disconnect();
       Object.values(intervalRefs.current).forEach((interval) => clearInterval(interval));
     };
   }, [navigate, role]);
@@ -171,7 +168,7 @@ function Dashboard() {
         throw new Error('Failed to fetch requests');
       }
       const requestsData = await reqResponse.json();
-      console.log('Fetched requests data:', requestsData);
+      console.log('Requests response:', requestsData);
       setRequests(requestsData || []);
     } catch (reqError) {
       console.error('Error fetching requests:', reqError);
@@ -357,6 +354,28 @@ function Dashboard() {
     }),
     [conversationId, currentUserId, selectedRequestId, requests]
   );
+
+  // Render ChatComponent only when conversationId exists
+  const renderChatComponent = () => {
+    if (conversationId) {
+      console.log('Rendering ChatComponent with conversationId:', conversationId, 'userId:', currentUserId || 'tempUserId');
+      return (
+        <ChatComponent
+          key={conversationId}
+          conversationId={conversationId}
+          userId={currentUserId || 'tempUserId'}
+          onClose={handleCloseChatDialog}
+          title={requests.find((r) => r._id === selectedRequestId)?.adSpace?.title || 'Chat'}
+        />
+      );
+    }
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '350px' }}>
+        <CircularProgress />
+        <Typography sx={{ ml: 2 }}>Loading chat... Please wait or refresh.</Typography>
+      </Box>
+    );
+  };
 
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>
@@ -699,23 +718,7 @@ function Dashboard() {
               requests.find((r) => r._id === selectedRequestId)?.owner?.name ||
               'User'}
           </DialogTitle>
-          <DialogContent>
-            {console.log('Rendering ChatComponent with conversationId:', conversationId, 'userId:', currentUserId || 'tempUserId')}
-            {conversationId ? (
-              <ChatComponent
-                key={conversationId}
-                conversationId={conversationId}
-                userId={currentUserId || 'tempUserId'}
-                onClose={handleCloseChatDialog}
-                title={requests.find((r) => r._id === selectedRequestId)?.adSpace?.title || 'Chat'}
-              />
-            ) : (
-              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '350px' }}>
-                <CircularProgress />
-                <Typography sx={{ ml: 2 }}>Loading chat... Please wait or refresh.</Typography>
-              </Box>
-            )}
-          </DialogContent>
+          <DialogContent>{renderChatComponent()}</DialogContent>
           <DialogActions>
             <Button onClick={handleCloseChatDialog} color="primary">
               Close

@@ -15,10 +15,10 @@ const OTP_EXPIRATION = 300; // 5 minutes
 const JWT_EXPIRATION = '1h';
 const REFRESH_TOKEN_EXPIRATION = '7d';
 
-// ✅ Rate limiting for OTP requests (per IP & per email)
+// Rate limiting for OTP requests
 const otpRequestLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 3, // 3 OTP requests per 15 minutes per IP
+  max: 3,
   message: 'Too many OTP requests. Try again later.',
 });
 
@@ -30,14 +30,14 @@ const transporter = nodemailer.createTransport({
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-  // logger: true,  // Enable detailed logging
-  // debug: true,   // Enable debug output
 });
 
-
-// ✅ Securely store JWT in HTTP-only cookies
+// Send JWT cookies
 const sendAuthCookies = (res, user) => {
-  const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRATION });
+  if (!user.role) {
+    console.warn(`User ${user._id} has no role assigned during token generation`);
+  }
+  const token = jwt.sign({ id: user._id, role: user.role || '' }, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRATION });
   const refreshToken = jwt.sign({ id: user._id }, process.env.JWT_REFRESH_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRATION });
 
   const isProduction = process.env.NODE_ENV === 'production';
@@ -51,9 +51,9 @@ const sendAuthCookies = (res, user) => {
   res.cookie('refreshToken', refreshToken, cookieOptions);
 };
 
-// ✅ Generate OTP & Save in Redis
+// Generate OTP & Save in Redis
 const generateAndSendOTP = async (email) => {
-  await redisClient.del(`otp:${email}`); // Clear old OTP before generating a new one
+  await redisClient.del(`otp:${email}`);
   const otp = Math.floor(100000 + Math.random() * 900000);
   const hashedOtp = await bcrypt.hash(otp.toString(), 10);
   await redisClient.setEx(`otp:${email}`, OTP_EXPIRATION, hashedOtp);
@@ -68,7 +68,7 @@ const generateAndSendOTP = async (email) => {
   await transporter.sendMail(mailOptions);
 };
 
-// ✅ Registration (Stores OTP, Not User)
+// Registration
 router.post('/register', otpRequestLimiter, async (req, res) => {
   const { name, email, password } = req.body;
   const passwordRegex = /^(?=.*\d)(?=.*[!@#$%^&*])(?=.*[a-z]).{8,}$/;
@@ -85,85 +85,81 @@ router.post('/register', otpRequestLimiter, async (req, res) => {
       return res.status(400).json({ message: 'OTP already sent. Please verify your email.' });
     }
 
-    // Store user details temporarily in Redis
     const tempData = {
       name,
       email,
-      passwordHash: await bcrypt.hash(password, 10) // Hash password before storing
+      passwordHash: await bcrypt.hash(password, 10),
     };
 
-    await redisClient.setEx(`reg:${email}`, 300, JSON.stringify(tempData)); // Expiry: 5 mins
-
+    await redisClient.setEx(`reg:${email}`, 300, JSON.stringify(tempData));
     await generateAndSendOTP(email);
     res.status(201).json({ message: 'OTP sent to your email. Please verify.' });
   } catch (error) {
+    console.error('Registration error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// ✅ Verify OTP & Create User (Only if OTP is correct)
+// Verify OTP
 router.post('/verify-otp', async (req, res) => {
-  const { email, otp } = req.body; // Only expect email & otp from frontend
+  const { email, otp } = req.body;
 
   try {
-    // Retrieve OTP & temp user data from Redis
     const [storedOtpHash, tempData] = await Promise.all([
       redisClient.get(`otp:${email}`),
-      redisClient.get(`reg:${email}`)
+      redisClient.get(`reg:${email}`),
     ]);
 
     if (!storedOtpHash || !tempData) {
       return res.status(400).json({ message: 'OTP expired or registration session not found. Please restart registration.' });
     }
 
-    // Verify OTP
     const isMatch = await bcrypt.compare(otp.toString(), storedOtpHash);
     if (!isMatch) return res.status(400).json({ message: 'Invalid OTP' });
 
-    // Extract user details from Redis (name, email, password)
     const { name, email: storedEmail, passwordHash } = JSON.parse(tempData);
 
-    // Create user only after successful OTP verification
     const user = new User({
       name,
       email: storedEmail,
-      password: passwordHash, // Already hashed
+      password: passwordHash,
       verified: true,
-      profileCompleted: false
+      profileCompleted: false,
     });
 
     await user.save();
 
-    // Cleanup Redis data
     await Promise.all([
       redisClient.del(`otp:${email}`),
-      redisClient.del(`reg:${email}`)
+      redisClient.del(`reg:${email}`),
     ]);
 
     sendAuthCookies(res, user);
-    res.status(200).json({ message: 'Email verified. Registration complete.', user });
+    res.status(200).json({
+      message: 'Email verified. Registration complete.',
+      user,
+      redirect: '/onboarding',
+    });
   } catch (error) {
+    console.error('OTP verification error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-
-// ✅ Resend OTP (Checks for existing user first)
+// Resend OTP
 router.post('/resend-otp', async (req, res) => {
   const { email } = req.body;
 
   try {
-    // const existingUser = await User.findOne({ email });
-    // if (!existingUser) return res.status(400).json({ message: 'User not found' });
-
     await generateAndSendOTP(email);
     res.status(200).json({ message: 'OTP resent to your email.' });
   } catch (error) {
+    console.error('Resend OTP error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// ✅ Google Authentication (Stores token in cookie & redirects to onboarding if new user)
+// Google Authentication
 router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
 router.get('/google/callback', passport.authenticate('google', { session: false }), async (req, res) => {
   let user = await User.findOne({ email: req.user.email });
@@ -175,10 +171,10 @@ router.get('/google/callback', passport.authenticate('google', { session: false 
   res.redirect(`${frontendUrl}${user.profileCompleted ? '/dashboard' : '/onboarding'}`);
 });
 
-// manual Login Route
+// Manual Login
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
-  console.log(`Login attempt - Email: ${email}, Password: ${password}`);
+  console.log(`Login attempt - Email: ${email}`);
   try {
     const user = await User.findOne({ email });
     if (!user) {
@@ -199,14 +195,17 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Please verify your email before logging in.' });
     }
     sendAuthCookies(res, user);
-    res.json({ user });
+    res.json({
+      user,
+      redirect: user.profileCompleted && user.role ? '/dashboard' : '/onboarding',
+    });
   } catch (error) {
     console.error(`Error during login for ${email}:`, error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// ✅ Onboarding Route: Now only requires 'role' to complete profile
+// Onboarding
 router.post('/onboarding', auth, async (req, res) => {
   const { phone, location, businessName, role } = req.body;
 
@@ -216,10 +215,9 @@ router.post('/onboarding', auth, async (req, res) => {
 
     if (!role) return res.status(400).json({ message: 'Role selection is required' });
 
-    // Phone number validation: ensure exactly 10 digits
-    let formattedPhone = phone ? phone.replace(/\D/g, '') : ''; // Remove all non-digits
+    let formattedPhone = phone ? phone.replace(/\D/g, '') : '';
     if (formattedPhone.length === 11 && formattedPhone.startsWith('0')) {
-      formattedPhone = formattedPhone.slice(1); // Remove leading zero
+      formattedPhone = formattedPhone.slice(1);
     }
     if (formattedPhone.length !== 10) {
       return res.status(400).json({ message: 'Phone number must be exactly 10 digits.' });
@@ -236,24 +234,40 @@ router.post('/onboarding', auth, async (req, res) => {
     }
 
     await user.save();
-    res.status(200).json({ message: 'Profile completed', user });
+    sendAuthCookies(res, user); // Refresh token with new role
+    // Add redirect logic
+    if (!user.role) {
+      return res.status(400).json({ message: 'Role not set after onboarding', redirect: '/onboarding' });
+    }
+    res.status(200).json({
+      message: 'Profile completed',
+      user,
+      redirect: '/dashboard',
+    });
   } catch (error) {
+    console.error('Onboarding error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
+// Logout
 router.post('/logout', (req, res) => {
   res.clearCookie('token');
   res.clearCookie('refreshToken');
   res.status(200).json({ message: 'Logged out successfully' });
 });
 
+// Get Current User
 router.get('/me', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('role');
+    const user = await User.findById(req.user.id).select('name email role profile profileCompleted');
     if (!user) return res.status(404).json({ message: 'User not found' });
-    res.status(200).json({ role: user.role });
+    res.status(200).json({
+      user,
+      redirect: user.profileCompleted && user.role ? '/dashboard' : '/onboarding',
+    });
   } catch (error) {
+    console.error('Get user error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
