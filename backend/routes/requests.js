@@ -57,17 +57,28 @@ router.post('/send', auth, role('advertiser'), async (req, res) => {
 
 // Get user's requests (fixed for dashboard)
 router.get('/my', auth, async (req, res) => {
-  console.log('Fetching requests for user:', req.user.id);
+  console.log('Authenticated user:', req.user);
   try {
     let requests;
     if (req.user.role === 'owner') {
       requests = await Request.find({ owner: new ObjectId(req.user.id) })
         .populate('sender', 'name businessName')
         .populate('adSpace', 'title address');
-    } else {
+    } else if (req.user.role === 'advertiser') {
       requests = await Request.find({ sender: new ObjectId(req.user.id) })
         .populate('owner', 'name businessName')
         .populate('adSpace', 'title address');
+    } else {
+      requests = await Request.find({
+        $or: [
+          { sender: new ObjectId(req.user.id) },
+          { owner: new ObjectId(req.user.id) },
+        ],
+      })
+        .populate('sender', 'name businessName')
+        .populate('owner', 'name businessName')
+        .populate('adSpace', 'title address');
+      console.warn(`Role not found for user ${req.user.id}, using fallback query`);
     }
     console.log('Found requests:', requests.length);
 
