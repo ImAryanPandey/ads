@@ -1,5 +1,4 @@
-// frontend/src/App.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, createContext } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -19,12 +18,16 @@ import BrowseAdSpaces from './components/BrowseAdSpaces.jsx';
 import AdSpaceDetails from './components/AdSpaceDetails.jsx';
 import AnalyticsDashboard from './components/AnalyticsDashboard.jsx';
 import EditAdSpace from './components/EditAdSpace.jsx';
-import Messages from './components/Messages.jsx'; // Import Messages
-import { Box, IconButton } from '@mui/material';
+import Messages from './components/Messages.jsx';
+import { Box, IconButton, CircularProgress } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 
+// Create a context for user data
+export const UserContext = createContext();
+
 const PrivateRoute = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(null);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -34,57 +37,46 @@ const PrivateRoute = ({ children }) => {
           credentials: 'include',
         });
         if (response.ok) {
-          setIsAuthenticated(true);
+          const data = await response.json();
+          setUser(data.user || data); // Set the full user object
         } else {
-          setIsAuthenticated(false);
+          setUser(null);
         }
       } catch (error) {
-        setIsAuthenticated(false);
+        console.error('Authentication check error:', error);
+        setUser(null);
+      } finally {
+        setLoading(false);
       }
     };
     checkAuth();
   }, []);
 
-  if (isAuthenticated === null) return null;
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
-  return isAuthenticated ? children : <Navigate to="/login" />;
+  return user ? (
+    <UserContext.Provider value={{ user, setUser }}>
+      {children}
+    </UserContext.Provider>
+  ) : (
+    <Navigate to="/login" />
+  );
 };
 
 function AppContent() {
-  const [role, setRole] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const location = useLocation();
-
   const hideSidebar = location.pathname === '/login' || location.pathname === '/register';
-
-  useEffect(() => {
-    const fetchUserRole = async () => {
-      try {
-        const response = await fetch('http://localhost:5000/api/auth/me', {
-          method: 'GET',
-          credentials: 'include',
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setRole(data.role);
-        } else {
-          setRole(null);
-        }
-      } catch (error) {
-        setRole(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchUserRole();
-  }, []);
-
-  if (loading) return null;
 
   return (
     <Box sx={{ display: 'flex' }}>
-      {!hideSidebar && role && (
+      {!hideSidebar && (
         <>
           <IconButton
             onClick={() => setDrawerOpen(true)}
@@ -98,11 +90,7 @@ function AppContent() {
           >
             <MenuIcon />
           </IconButton>
-          <Sidebar
-            role={role}
-            open={drawerOpen}
-            onClose={() => setDrawerOpen(false)}
-          />
+          <Sidebar open={drawerOpen} onClose={() => setDrawerOpen(false)} />
         </>
       )}
       <Box
@@ -122,7 +110,7 @@ function AppContent() {
             alignItems: 'center',
           }}
         >
-          {role && !hideSidebar && <ProfileDropdown />}
+          {!hideSidebar && <ProfileDropdown />}
           <ThemeToggle />
         </Box>
         <Routes>
@@ -130,15 +118,78 @@ function AppContent() {
           <Route path="/register" element={<Register />} />
           <Route path="/verify-email/:token" element={<VerifyEmail />} />
           <Route path="/verify-otp" element={<VerifyOTP />} />
-          <Route path="/onboarding" element={<PrivateRoute><Onboarding /></PrivateRoute>} />
-          <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-          <Route path="/requests" element={<PrivateRoute><Requests /></PrivateRoute>} />
-          <Route path="/add-adSpace" element={<PrivateRoute><AddAdSpace /></PrivateRoute>} />
-          <Route path="/edit-adSpace/:id" element={<PrivateRoute><EditAdSpace /></PrivateRoute>} />
-          <Route path="/browse-adSpaces" element={<PrivateRoute><BrowseAdSpaces /></PrivateRoute>} />
-          <Route path="/adSpace/:id" element={<PrivateRoute><AdSpaceDetails /></PrivateRoute>} />
-          <Route path="/analytics" element={<PrivateRoute><AnalyticsDashboard /></PrivateRoute>} />
-          <Route path="/messages" element={<PrivateRoute><Messages /></PrivateRoute>} />
+          <Route
+            path="/onboarding"
+            element={
+              <PrivateRoute>
+                <Onboarding />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <PrivateRoute>
+                <Dashboard />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/requests"
+            element={
+              <PrivateRoute>
+                <Requests mode="standalone" />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/add-adSpace"
+            element={
+              <PrivateRoute>
+                <AddAdSpace />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/edit-adSpace/:id"
+            element={
+              <PrivateRoute>
+                <EditAdSpace />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/browse-adSpaces"
+            element={
+              <PrivateRoute>
+                <BrowseAdSpaces />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/adSpace/:id"
+            element={
+              <PrivateRoute>
+                <AdSpaceDetails />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/analytics"
+            element={
+              <PrivateRoute>
+                <AnalyticsDashboard />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/messages"
+            element={
+              <PrivateRoute>
+                <Messages />
+              </PrivateRoute>
+            }
+          />
           <Route path="/" element={<Navigate to="/login" />} />
         </Routes>
       </Box>
