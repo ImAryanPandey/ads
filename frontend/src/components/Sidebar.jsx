@@ -1,4 +1,3 @@
-// frontend/src/components/Sidebar.jsx
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import io from 'socket.io-client';
@@ -20,7 +19,7 @@ import AddBoxIcon from '@mui/icons-material/AddBox';
 import SearchIcon from '@mui/icons-material/Search';
 import MessageIcon from '@mui/icons-material/Message';
 import AnalyticsIcon from '@mui/icons-material/Analytics';
-import RequestIcon from '@mui/icons-material/Assignment'; // Added for Requests
+import RequestIcon from '@mui/icons-material/Assignment';
 
 const socket = io('http://localhost:5000', { withCredentials: true });
 
@@ -38,7 +37,7 @@ function Sidebar({ role, open, onClose }) {
         });
         if (response.ok) {
           const data = await response.json();
-          setUnreadCount(data.unreadCount);
+          setUnreadCount(data.unreadCount || 0);
         }
       } catch (error) {
         console.error('Error fetching unread count:', error);
@@ -46,27 +45,29 @@ function Sidebar({ role, open, onClose }) {
     };
     fetchUnreadCount();
 
-    socket.on('message', () => {
-      setUnreadCount((prev) => prev + 1);
+    socket.on('newMessage', (data) => {
+      if (data.recipientId) setUnreadCount((prev) => prev + 1);
     });
 
     return () => {
-      socket.off('message');
+      socket.off('newMessage');
     };
   }, []);
 
-  const menuItems = role === 'owner' ? [
-    { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
-    { text: 'Add AdSpace', icon: <AddBoxIcon />, path: '/add-adSpace' },
-    { text: 'Requests', icon: <RequestIcon />, path: '/requests' }, // Added Requests
-    { text: 'Messages', icon: <MessageIcon />, path: '/messages', badge: unreadCount },
-    { text: 'Analytics', icon: <AnalyticsIcon />, path: '/analytics' },
-  ] : [
-    { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
-    { text: 'Browse AdSpaces', icon: <SearchIcon />, path: '/browse-adSpaces' },
-    { text: 'Requests', icon: <RequestIcon />, path: '/requests' }, // Added Requests
-    { text: 'Messages', icon: <MessageIcon />, path: '/messages', badge: unreadCount },
-  ];
+  const menuItems = role === 'owner'
+    ? [
+        { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
+        { text: 'Add AdSpace', icon: <AddBoxIcon />, path: '/add-adSpace' },
+        { text: 'Requests', icon: <RequestIcon />, path: '/requests' },
+        { text: 'Messages', icon: <MessageIcon />, path: '/messages', badge: unreadCount },
+        { text: 'Analytics', icon: <AnalyticsIcon />, path: '/analytics' },
+      ]
+    : [
+        { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
+        { text: 'Browse AdSpaces', icon: <SearchIcon />, path: '/browse-adSpaces' },
+        { text: 'Requests', icon: <RequestIcon />, path: '/requests' },
+        { text: 'Messages', icon: <MessageIcon />, path: '/messages', badge: unreadCount },
+      ];
 
   const drawerContent = (
     <Box
@@ -109,7 +110,6 @@ function Sidebar({ role, open, onClose }) {
       <List sx={{ pt: 1 }}>
         {menuItems.map((item) => (
           <ListItem
-            button
             key={item.text}
             onClick={() => {
               if (item.text === 'Messages') setUnreadCount(0);
@@ -144,7 +144,7 @@ function Sidebar({ role, open, onClose }) {
                 transition: 'all 0.3s ease',
               }}
             >
-              {item.badge ? (
+              {item.badge > 0 ? (
                 <Badge badgeContent={item.badge} color="error">
                   {item.icon}
                 </Badge>
