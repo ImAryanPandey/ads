@@ -1,27 +1,46 @@
-import React, { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import React from 'react';
+import { useForm, Controller } from 'react-hook-form';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { Button, TextField, Box, Typography, MenuItem } from '@mui/material';
 
 function Onboarding() {
-  const { register, handleSubmit, formState: { errors }, watch } = useForm();
+  const { register, handleSubmit, formState: { errors }, watch, control } = useForm({
+    defaultValues: {
+      phone: '',
+      role: '',
+      location: '',
+      businessName: '',
+    },
+  });
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   
-  const role = watch("role"); // Dynamically track role selection
+  const role = watch("role");
 
   const onSubmit = async (data) => {
     try {
       const apiUrl = `${import.meta.env.VITE_API_URL}/auth/onboarding`;
       const response = await axios.post(apiUrl, data, { withCredentials: true });
+      
+      // Sync user data and check role from the correct response structure
+      const userResponse = await axios.get(`${import.meta.env.VITE_API_URL}/auth/me`, { withCredentials: true });
+      if (!userResponse.data.role) {
+        throw new Error('Role not set after onboarding');
+      }
+      console.log('User data after onboarding:', userResponse.data);
+
       toast.success('Profile completed!');
-      navigate('/dashboard');
+      navigate(response.data.redirect || '/dashboard?refresh=true');
     } catch (error) {
-      if (error.response?.status === 401) {
+      console.error('Onboarding error:', error.response?.data || error.message);
+      if (error.response?.status === 401 || error.response?.data.redirect === '/login') {
         toast.error('Please log in to continue.');
         navigate('/login');
+      } else if (error.response?.data.redirect) {
+        toast.error(error.response.data.message);
+        navigate(error.response.data.redirect);
       } else {
         toast.error(error.response?.data.message || 'Onboarding failed');
       }
@@ -32,7 +51,6 @@ function Onboarding() {
     <Box sx={{ maxWidth: 400, mx: 'auto', mt: 5 }}>
       <Typography variant="h4" gutterBottom>Complete Your Profile</Typography>
       <form onSubmit={handleSubmit(onSubmit)}>
-        
         <TextField
           label="Phone"
           fullWidth
@@ -42,20 +60,27 @@ function Onboarding() {
           helperText={errors.phone?.message}
         />
         
-        <TextField
-          select
-          label="Role"
-          fullWidth
-          margin="normal"
-          {...register('role', { required: 'Please select a role' })}
-          error={!!errors.role}
-          helperText={errors.role?.message}
-        >
-          <MenuItem value="owner">AdSpace Owner</MenuItem>
-          <MenuItem value="advertiser">Advertiser</MenuItem>
-        </TextField>
+        <Controller
+          name="role"
+          control={control}
+          rules={{ required: 'Please select a role' }}
+          render={({ field }) => (
+            <TextField
+              {...field}
+              select
+              label="Role"
+              fullWidth
+              margin="normal"
+              error={!!errors.role}
+              helperText={errors.role?.message}
+            >
+              <MenuItem value="">Select a role</MenuItem>
+              <MenuItem value="owner">AdSpace Owner</MenuItem>
+              <MenuItem value="advertiser">Advertiser</MenuItem>
+            </TextField>
+          )}
+        />
 
-        {/* Show Location field only if the role is "owner" */}
         {role === "owner" && (
           <TextField
             label="Location"
@@ -67,7 +92,6 @@ function Onboarding() {
           />
         )}
 
-        {/* Show Business Name field only if the role is "advertiser" */}
         {role === "advertiser" && (
           <TextField
             label="Business Name"
@@ -79,7 +103,12 @@ function Onboarding() {
           />
         )}
 
-        <Button type="submit" variant="contained" fullWidth sx={{ mt: 2, bgcolor: 'var(--primary-color)' }}>
+        <Button
+          type="submit"
+          variant="contained"
+          fullWidth
+          sx={{ mt: 2, bgcolor: 'var(--primary-color)', '&:hover': { bgcolor: 'var(--primary-dark)' } }}
+        >
           Save
         </Button>
       </form>
