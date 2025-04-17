@@ -6,7 +6,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import CloseIcon from '@mui/icons-material/Close';
 import SendIcon from '@mui/icons-material/Send';
-import pako from 'pako'; // Ensure pako is installed
+import pako from 'pako';
 
 function ChatComponent({ conversationId, userId, onClose, title }) {
   const [messages, setMessages] = useState([]);
@@ -14,13 +14,12 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
   const [loading, setLoading] = useState(false);
   const [image, setImage] = useState(null);
   const [hasMore, setHasMore] = useState(true);
-  const [participantNames, setParticipantNames] = useState({}); // Map of userId to name
+  const [participantNames, setParticipantNames] = useState({});
   const messagesEndRef = useRef(null);
   const messagesListRef = useRef(null);
   const socketRef = useRef(null);
   const prevConversationIdRef = useRef(null);
 
-  // Improved decompression function with conditional check
   const decompressMessage = (content) => {
     try {
       if (!content || typeof content !== 'string') return content;
@@ -41,27 +40,23 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
     }
   };
 
-  // Fetch participant names from Conversation Model with error handling
   const fetchParticipantNames = async () => {
     try {
       const baseUrl = import.meta.env.VITE_API_URL.replace(/\/$/, '');
       const response = await fetch(`${baseUrl}/chat/conversations/${conversationId}/participants`, {
         credentials: 'include',
       });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
       console.log('Fetched participant names:', data);
       const namesMap = data.participants.reduce((acc, participant) => {
-        acc[participant.userId] = participant.name || `User_${participant.userId.slice(-4)}`; // Fallback name
+        acc[participant.userId] = participant.name || `User_${participant.userId.slice(-4)}`;
         return acc;
       }, {});
       setParticipantNames(namesMap);
     } catch (error) {
       console.error('Error fetching participant names:', error);
       toast.error('Failed to load participant names. Using fallback names.');
-      // Fallback: Use sender IDs as temporary names
       setParticipantNames((prev) => ({
         ...prev,
         [userId]: 'You',
@@ -116,8 +111,7 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
     setMessages([]);
     setLoading(true);
 
-    const socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    socketRef.current = io(socketUrl, {
+    socketRef.current = io('http://localhost:5000', {
       withCredentials: true,
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 5,
@@ -126,13 +120,15 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
 
     socketRef.current.on('connect', () => {
       console.log('Socket.IO connected for conversation:', conversationId);
-      socketRef.current.emit('joinRoom', conversationId, (response) => {
-        console.log('Join room response:', response);
-        if (response?.success) {
-          fetchMessages(0);
-          fetchParticipantNames(); // Load participant names
-        }
-      });
+      if (!messages.length) { // Only join and fetch if no messages yet
+        socketRef.current.emit('joinRoom', conversationId, (response) => {
+          console.log('Join room response:', response);
+          if (response?.success) {
+            fetchMessages(0);
+            fetchParticipantNames();
+          }
+        });
+      }
     });
 
     socketRef.current.on('connect_error', (err) => {
@@ -159,7 +155,7 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
     socketRef.current.on('roomJoined', (data) => {
       console.log('Room joined:', data.message);
       toast.success(data.message);
-      fetchMessages(0);
+      // Avoid re-fetching messages on room join if already loaded
     });
 
     socketRef.current.on('error', (error) => {
@@ -173,13 +169,15 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
       console.log('Cleaning up socket listeners for conversationId:', conversationId);
       if (socketRef.current) {
         socketRef.current.emit('leaveRoom', conversationId);
-        socketRef.current.off('connect');
-        socketRef.current.off('connect_error');
-        socketRef.current.off('message');
-        socketRef.current.off('messageDeleted');
-        socketRef.current.off('roomJoined');
-        socketRef.current.off('error');
-        socketRef.current.disconnect();
+        setTimeout(() => {
+          socketRef.current.off('connect');
+          socketRef.current.off('connect_error');
+          socketRef.current.off('message');
+          socketRef.current.off('messageDeleted');
+          socketRef.current.off('roomJoined');
+          socketRef.current.off('error');
+          socketRef.current.disconnect();
+        }, 100);
       }
     };
   }, [conversationId, fetchMessages, userId]);
@@ -198,12 +196,18 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
         credentials: 'include',
         body: formData,
       });
-      if (!response.ok) throw new Error('Failed to send message');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`Failed to send message: ${errorData.message || response.statusText}`);
+      }
       const data = await response.json();
       console.log('Send message response:', data);
+      // Force re-fetch to ensure message appears
+      fetchMessages(0);
       setMessage('');
       setImage(null);
       toast.success('Message sent!');
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     } catch (error) {
       console.error('Error sending message:', error);
       toast.error(`Failed to send: ${error.message}`);

@@ -9,29 +9,26 @@ const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
 
 router.post('/open', auth, async (req, res) => {
-  const { requestId, recipientId } = req.body;
-  console.log('Received /open request:', { requestId, recipientId, userId: req.user?.id });
+  const { requestId, recipientId, isDirectOpen = false } = req.body;
+  console.log('Received /open request:', { requestId, recipientId, userId: req.user?.id, isDirectOpen });
 
   if (!req.user?.id) {
     return res.status(401).json({ message: 'Unauthorized: User ID missing' });
   }
 
-  if (!requestId || !recipientId) {
-    return res.status(400).json({ message: 'requestId and recipientId are required' });
+  if (!requestId && !isDirectOpen) {
+    return res.status(400).json({ message: 'requestId or isDirectOpen is required' });
+  }
+  if (!recipientId) {
+    return res.status(400).json({ message: 'recipientId is required' });
   }
 
   try {
-    const request = await Request.findById(requestId).populate('adSpace', 'title');
-    if (!request || !request.adSpace) {
-      return res.status(404).json({ message: 'Request or AdSpace not found' });
-    }
-
-    const participants = [req.user.id, recipientId].sort();
-    let conversation = await Conversation.findOne({ participants: { $all: participants } });
+    let conversation = await Conversation.findOne({ participants: { $all: [req.user.id, recipientId].sort() } });
     console.log('Found conversation:', conversation ? 'Yes' : 'No');
 
     if (!conversation) {
-      conversation = new Conversation({ participants });
+      conversation = new Conversation({ participants: [req.user.id, recipientId].sort() });
       await conversation.save();
       console.log('Created new conversation:', conversation._id);
     }
@@ -43,16 +40,24 @@ router.post('/open', auth, async (req, res) => {
       console.log('Created new chat:', chat._id);
     }
 
-    const systemMessage = {
-      sender: null,
-      content: `Chat opened regarding AdSpace: ${request.adSpace.title}`,
-      timestamp: new Date(),
-      isSystem: true,
-    };
-    chat.messages.push(systemMessage);
-    await chat.save();
-    console.log('Saved system message:', systemMessage.content);
-    req.app.get('io').to(conversation._id.toString()).emit('message', systemMessage);
+    // Only add system message if opened via request (not direct open)
+    if (!isDirectOpen && requestId) {
+      const request = await Request.findById(requestId).populate('adSpace', 'title');
+      if (!request || !request.adSpace) {
+        return res.status(404).json({ message: 'Request or AdSpace not found' });
+      }
+
+      const systemMessage = {
+        sender: null,
+        content: `Chat opened regarding AdSpace: ${request.adSpace.title}`,
+        timestamp: new Date(),
+        isSystem: true,
+      };
+      chat.messages.push(systemMessage);
+      await chat.save();
+      console.log('Saved system message:', systemMessage.content);
+      req.app.get('io').to(conversation._id.toString()).emit('message', systemMessage);
+    }
 
     res.status(200).json({ conversationId: conversation._id.toString() });
   } catch (error) {
@@ -77,6 +82,42 @@ router.get('/unread', auth, async (req, res) => {
   } catch (error) {
     console.error('Error fetching unread count:', error.stack);
     res.status(500).json({ message: 'Error fetching unread count', error: error.message });
+  }
+});
+
+// New Endpoint to Fetch All Conversations
+router.get('/conversations', auth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const conversations = await Conversation.find({ participants: userId })
+      .populate('participants', 'name email profilePicture')
+      .lean();
+
+    const conversationsWithDetails = await Promise.all(
+      conversations.map(async (conv) => {
+        const chat = await Chat.findOne({ conversationId: conv._id }).lean();
+        const otherParticipant = conv.participants.find(p => p._id.toString() !== userId);
+        const unreadCount = chat ? chat.messages.filter(msg => !msg.read && msg.sender?.toString() !== userId).length : 0;
+        const lastMessage = chat?.messages.length > 0 ? chat.messages[chat.messages.length - 1] : null;
+
+        return {
+          _id: conv._id,
+          otherParticipant: {
+            _id: otherParticipant?._id,
+            name: otherParticipant?.name || `User_${otherParticipant?._id.toString().slice(-4)}`,
+            profilePicture: otherParticipant?.profilePicture || null,
+          },
+          adSpace: { title: 'Sample AdSpace' }, // Replace with actual adSpace link if available
+          unreadCount,
+          lastMessage: lastMessage ? { content: lastMessage.content, timestamp: lastMessage.timestamp } : null,
+        };
+      })
+    );
+
+    res.status(200).json(conversationsWithDetails);
+  } catch (error) {
+    console.error('Error fetching conversations:', error.stack);
+    res.status(500).json({ message: 'Server error', details: error.message });
   }
 });
 
@@ -187,7 +228,7 @@ router.post('/conversations/:conversationId', auth, upload.single('image'), asyn
     res.status(500).json({ message: 'Server error', details: error.message });
   }
 });
-// routes/chat.js
+
 router.get('/conversations/:conversationId/participants', auth, async (req, res) => {
   const { conversationId } = req.params;
   console.log('GET /conversations/:conversationId/participants request:', { conversationId, userId: req.user?.id });
@@ -197,7 +238,7 @@ router.get('/conversations/:conversationId/participants', auth, async (req, res)
       return res.status(400).json({ message: 'Invalid conversationId' });
     }
 
-    const conversation = await Conversation.findById(conversationId).populate('participants', 'name'); // Adjust fields as per your schema
+    const conversation = await Conversation.findById(conversationId).populate('participants', 'name');
     if (!conversation) {
       return res.status(404).json({ message: 'Conversation not found' });
     }
@@ -217,6 +258,7 @@ router.get('/conversations/:conversationId/participants', auth, async (req, res)
     res.status(500).json({ message: 'Server error', details: error.message });
   }
 });
+
 router.post('/attachments', auth, async (req, res) => {
   const upload = req.app.get('upload');
   upload.single('image')(req, res, async (err) => {
