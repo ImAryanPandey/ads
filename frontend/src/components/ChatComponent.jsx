@@ -111,7 +111,7 @@ function ChatComponent({ conversationId, userId, onClose, title }) {
     setMessages([]);
     setLoading(true);
 
-    socketRef.current = io('http://localhost:5000', {
+    socketRef.current = io(`${import.meta.env.VITE_SOCKET_URL}`, {
       withCredentials: true,
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 5,

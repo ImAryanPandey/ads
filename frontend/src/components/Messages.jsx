@@ -8,7 +8,7 @@ import io from 'socket.io-client';
 import pako from 'pako';
 import ChatComponent from './ChatComponent';
 
-const socket = io('http://localhost:5000', { withCredentials: true });
+const socket = io(`${import.meta.env.VITE_SOCKET_URL}`, { withCredentials: true });
 
 class ErrorBoundary extends React.Component {
   state = { hasError: false, error: null };

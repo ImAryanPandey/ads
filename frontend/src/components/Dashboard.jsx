@@ -45,7 +45,7 @@ function Dashboard() {
     // Log once when component mounts
     console.log('Dashboard mounted - Initial render');
 
-    socketRef.current = io('http://localhost:5000', {
+    socketRef.current = io(`${import.meta.env.VITE_SOCKET_URL}`, {
       withCredentials: true,
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 5,

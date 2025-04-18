@@ -21,7 +21,7 @@ import MessageIcon from '@mui/icons-material/Message';
 import AnalyticsIcon from '@mui/icons-material/Analytics';
 import RequestIcon from '@mui/icons-material/Assignment';
 
-const socket = io('http://localhost:5000', { withCredentials: true });
+const socket = io(`${import.meta.env.VITE_SOCKET_URL}`, { withCredentials: true });
 
 function Sidebar({ role, open, onClose }) {
   const navigate = useNavigate();
