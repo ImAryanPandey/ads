@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const passport = require('passport');
-const { auth } = require('../middleware/auth'); // Assuming this is the middleware
+const { auth } = require('../middleware/auth');
 const rateLimit = require('express-rate-limit');
 
 require('dotenv').config();
@@ -37,14 +37,20 @@ const sendAuthCookies = (res, user) => {
   if (!user.role) {
     console.warn(`User ${user._id} has no role assigned during token generation`);
   }
-  const token = jwt.sign({ id: user._id, role: user.role || '' }, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRATION });
+  const currentTime = Math.floor(Date.now() / 1000); // Current timestamp in seconds
+  const token = jwt.sign(
+    { id: user._id, role: user.role || '', iat: currentTime },
+    process.env.JWT_SECRET,
+    { expiresIn: JWT_EXPIRATION }
+  );
   const refreshToken = jwt.sign({ id: user._id }, process.env.JWT_REFRESH_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRATION });
+  console.log('New token issued - iat:', currentTime, 'exp:', currentTime + 3600);
 
   const isProduction = process.env.NODE_ENV === 'production';
   const cookieOptions = {
     httpOnly: true,
     secure: isProduction,
-    sameSite: isProduction ? 'Strict' : 'None', // Changed to 'None' for cross-origin in production
+    sameSite: isProduction ? 'None' : 'Lax',
     maxAge: 3600000, // 1 hour
   };
 
@@ -237,7 +243,6 @@ router.post('/onboarding', auth, async (req, res) => {
 
     await user.save();
     sendAuthCookies(res, user); // Refresh token with new role
-    // Add redirect logic
     if (!user.role) {
       return res.status(400).json({ message: 'Role not set after onboarding', redirect: '/onboarding' });
     }
@@ -271,6 +276,28 @@ router.get('/me', auth, async (req, res) => {
   } catch (error) {
     console.error('Get user error:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Refresh Token
+router.post('/refresh', async (req, res) => { // Marked as async
+  const refreshToken = req.cookies.refreshToken;
+  console.log('Refresh attempt - Refresh Token:', refreshToken ? refreshToken.slice(0, 10) + '...' : 'undefined');
+
+  if (!refreshToken) {
+    return res.status(401).json({ message: 'No refresh token, authorization denied' });
+  }
+
+  try {
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+    const user = await User.findById(decoded.id); // Now valid with async
+    if (!user) throw new Error('User not found');
+
+    sendAuthCookies(res, user);
+    res.status(200).json({ message: 'Token refreshed' });
+  } catch (error) {
+    console.error('Refresh token verification error:', error.message);
+    res.status(401).json({ message: 'Invalid refresh token' });
   }
 });
 
