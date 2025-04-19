@@ -46,7 +46,6 @@ app.use(cors({ origin: frontendUrl, credentials: true }));
 app.use(express.json());
 app.use(helmet());
 app.use(express.urlencoded({ extended: true }));
-// REMOVED: app.use(upload.any()); // Removed global multer to match old behavior
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
@@ -237,5 +236,5 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: 'Something went wrong!', details: err.message });
 });
 
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 5000; // 5000 locally, Render uses 10000
 server.listen(PORT, () => console.log(`Server on ${PORT}`));
