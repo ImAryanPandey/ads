@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const passport = require('passport');
-const { auth } = require('../middleware/auth');
+const { auth } = require('../middleware/auth'); // Assuming this is the middleware
 const rateLimit = require('express-rate-limit');
 
 require('dotenv').config();
@@ -44,11 +44,13 @@ const sendAuthCookies = (res, user) => {
   const cookieOptions = {
     httpOnly: true,
     secure: isProduction,
-    sameSite: isProduction ? 'Strict' : 'Lax',
+    sameSite: isProduction ? 'Strict' : 'None', // Changed to 'None' for cross-origin in production
+    maxAge: 3600000, // 1 hour
   };
 
   res.cookie('token', token, cookieOptions);
   res.cookie('refreshToken', refreshToken, cookieOptions);
+  console.log('Cookies set:', { token: token.slice(0, 10) + '...', refreshToken: refreshToken.slice(0, 10) + '...' });
 };
 
 // Generate OTP & Save in Redis
@@ -72,7 +74,7 @@ const generateAndSendOTP = async (email) => {
 router.post('/register', otpRequestLimiter, async (req, res) => {
   const { name, email, password } = req.body;
   const passwordRegex = /^(?=.*\d)(?=.*[!@#$%^&*])(?=.*[a-z]).{8,}$/;
-  
+
   if (!passwordRegex.test(password)) {
     return res.status(400).json({ message: 'Password must include at least 8 characters, one number, and one special character.' });
   }
